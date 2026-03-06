@@ -4,8 +4,10 @@ import (
     "log"
     "net/http"
     "os"
+    "time"
 
     "github.com/Fharena/Vivedeck/internal/agent"
+    "github.com/Fharena/Vivedeck/internal/runtime"
 )
 
 func main() {
@@ -19,7 +21,11 @@ func main() {
 
     adapter := agent.NewMockAdapter()
     orchestrator := agent.NewOrchestrator(adapter, profiles)
-    server := agent.NewHTTPServer(orchestrator)
+
+    stateManager := runtime.NewStateManager(runtime.DefaultManagerConfig())
+    ackTracker := runtime.NewAckTracker(2 * time.Second)
+
+    server := agent.NewHTTPServer(orchestrator, stateManager, ackTracker)
 
     log.Printf("agent server listening on %s (adapter=%s)", addr, adapter.Name())
     if err := http.ListenAndServe(addr, server.Handler()); err != nil {
