@@ -57,6 +57,22 @@
 - 피어가 연결되면 queued signaling 메시지를 먼저 재전달
 - 큐 길이는 상한을 두고 초과 시 oldest 항목 제거
 
+## WebRTC 데이터채널 스켈레톤 (`internal/webrtc`)
+
+- `SidePC`는 offerer 역할로 data channel을 선생성
+- `SideMobile`는 offer 수신 후 answer 생성
+- ICE candidate 채널을 통해 트리클 후보를 교환
+- 연결/메시지 상태 이벤트를 채널로 노출
+
+핵심 메서드:
+
+- `CreateOffer()`
+- `ApplyOfferAndCreateAnswer()`
+- `ApplyAnswer()`
+- `AddRemoteICECandidate()`
+- `WaitForState()` / `WaitDataChannelOpen()`
+- `Send()`
+
 ## 런타임 신뢰성 레이어
 
 ### 연결 상태머신 (`internal/runtime/state_manager.go`)

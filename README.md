@@ -28,6 +28,8 @@ internal/
   relay/      # 릴레이 라우팅, 백프레셔 정책
   signaling/  # 페어링/세션 시그널링 모델
   protocol/   # 공통 Envelope, 메시지 타입
+  runtime/    # ACK 추적, 연결 상태머신
+  webrtc/     # PC/Mobile 데이터채널 스켈레톤
 adapters/
   cursor-bridge/ # TypeScript 브리지 계약 베이스라인
 shared/

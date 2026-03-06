@@ -84,15 +84,17 @@
 - 시그널링 방향성 검증(PC: OFFER/ICE, Mobile: ANSWER/ICE)
 - 상대 미접속 시 시그널 메시지 큐잉/재전달
 - `SIGNAL_READY` 이벤트 추가
+- Pion 기반 WebRTC peer 스켈레톤(`internal/webrtc`) 추가
 
 남은 작업:
 
 - Cursor 실제 Extension API 연동
-- WebRTC 피어 생성/SDP/ICE 실제 핸들러 결합
+- signaling 서버와 internal/webrtc를 실제 세션 레벨로 결합
+- 모바일(WebRTC 클라이언트) 구현 및 상호운용 테스트
 
 ## 다음 작업 우선순위
 
-1. Go 런타임 설치 후 `go test ./...`와 실제 프로세스 실행 검증
+1. signaling <-> internal/webrtc 브리지 서비스 추가(offer/answer/ice 실교환)
 2. 모바일/PC 양쪽 WebRTC 클라이언트 스켈레톤 연결
 3. Flutter Prompt/Review/Status 화면 베이스라인 추가
 4. MockCursorBridge를 실제 Cursor Extension API로 교체
@@ -107,4 +109,5 @@
 4. `feat(cursor-bridge): TypeScript WorkspaceAdapter 계약 추가`
 5. `feat(runtime): 연결 상태머신/ACK 추적기 추가`
 6. `feat(signaling): webrtc signaling 검증/큐잉 강화`
-7. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`
+7. `feat(webrtc): pc/mobile datachannel skeleton`
+8. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`
