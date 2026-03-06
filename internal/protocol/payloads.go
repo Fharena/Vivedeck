@@ -63,6 +63,26 @@ type OpenLocationPayload struct {
     Column int    `json:"column,omitempty"`
 }
 
+type SignalOfferPayload struct {
+    SDP string `json:"sdp"`
+}
+
+type SignalAnswerPayload struct {
+    SDP string `json:"sdp"`
+}
+
+type SignalICEPayload struct {
+    Candidate    string `json:"candidate"`
+    SDPMid       string `json:"sdpMid,omitempty"`
+    SDPMLineIndex int   `json:"sdpMLineIndex,omitempty"`
+}
+
+type SignalReadyPayload struct {
+    Role          string `json:"role"`
+    PeerConnected bool   `json:"peerConnected"`
+    Timestamp     int64  `json:"timestamp"`
+}
+
 type TermSummaryPayload struct {
     SkippedLines int `json:"skippedLines"`
 }

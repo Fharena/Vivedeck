@@ -58,7 +58,7 @@
 
 ### Phase 4: 런타임 신뢰성 강화
 
-상태: `진행 중`
+상태: `완료(베이스라인)`
 
 완료된 산출물:
 
@@ -81,6 +81,9 @@
 
 - TypeScript Cursor 브리지 계약 + Mock 구현
 - 시그널링 기본 offer/answer/ice 라우팅
+- 시그널링 방향성 검증(PC: OFFER/ICE, Mobile: ANSWER/ICE)
+- 상대 미접속 시 시그널 메시지 큐잉/재전달
+- `SIGNAL_READY` 이벤트 추가
 
 남은 작업:
 
@@ -93,3 +96,15 @@
 2. 모바일/PC 양쪽 WebRTC 클라이언트 스켈레톤 연결
 3. Flutter Prompt/Review/Status 화면 베이스라인 추가
 4. MockCursorBridge를 실제 Cursor Extension API로 교체
+
+## 커밋 전략
+
+기능 단위의 큰 커밋으로 진행:
+
+1. `chore(repo): 모노레포 구조 및 공통 계약 초기화`
+2. `feat(signaling,relay): 페어링/시그널링/릴레이 베이스라인`
+3. `feat(agent): prompt-patch-run 오케스트레이션 베이스라인`
+4. `feat(cursor-bridge): TypeScript WorkspaceAdapter 계약 추가`
+5. `feat(runtime): 연결 상태머신/ACK 추적기 추가`
+6. `feat(signaling): webrtc signaling 검증/큐잉 강화`
+7. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`

@@ -3,6 +3,7 @@ package signaling
 import (
     "encoding/json"
     "errors"
+    "fmt"
     "log"
     "net/http"
     "strings"
@@ -13,6 +14,8 @@ import (
     "github.com/gorilla/websocket"
 )
 
+const maxPendingSignals = 128
+
 type Server struct {
     store    *Store
     upgrader websocket.Upgrader
@@ -21,9 +24,31 @@ type Server struct {
     rooms map[string]*room
 }
 
+type peerConn struct {
+    conn    *websocket.Conn
+    writeMu sync.Mutex
+}
+
+func (p *peerConn) WriteJSONWithTimeout(v any, timeout time.Duration) error {
+    p.writeMu.Lock()
+    defer p.writeMu.Unlock()
+
+    _ = p.conn.SetWriteDeadline(time.Now().Add(timeout))
+    return p.conn.WriteJSON(v)
+}
+
+func (p *peerConn) Close() error {
+    p.writeMu.Lock()
+    defer p.writeMu.Unlock()
+    return p.conn.Close()
+}
+
 type room struct {
-    pcConn     *websocket.Conn
-    mobileConn *websocket.Conn
+    pcConn     *peerConn
+    mobileConn *peerConn
+
+    pendingForPC     []protocol.Envelope
+    pendingForMobile []protocol.Envelope
 }
 
 func NewServer(store *Store) *Server {
@@ -139,17 +164,33 @@ func (s *Server) handleSessionWS(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    conn, err := s.upgrader.Upgrade(w, r, nil)
+    wsConn, err := s.upgrader.Upgrade(w, r, nil)
     if err != nil {
         log.Printf("signaling ws upgrade failed: %v", err)
         return
     }
 
-    s.attachConn(sessionID, role, conn)
+    conn := &peerConn{conn: wsConn}
+    pending, readyTargets := s.attachConn(sessionID, role, conn)
+
+    // Flush queued signaling packets for the new peer first.
+    for _, env := range pending {
+        _ = conn.WriteJSONWithTimeout(env, 2*time.Second)
+    }
+
+    // Notify both peers that signaling room is fully ready.
+    for _, target := range readyTargets {
+        ready, err := buildSignalReadyEnvelope(sessionID, role)
+        if err != nil {
+            continue
+        }
+        _ = target.WriteJSONWithTimeout(ready, 2*time.Second)
+    }
+
     go s.readLoop(sessionID, role, conn)
 }
 
-func (s *Server) attachConn(sessionID string, role Role, conn *websocket.Conn) {
+func (s *Server) attachConn(sessionID string, role Role, conn *peerConn) ([]protocol.Envelope, []*peerConn) {
     s.mu.Lock()
     defer s.mu.Unlock()
 
@@ -159,21 +200,39 @@ func (s *Server) attachConn(sessionID string, role Role, conn *websocket.Conn) {
         s.rooms[sessionID] = rm
     }
 
-    if role == RolePC {
-        if rm.pcConn != nil {
-            _ = rm.pcConn.Close()
-        }
+    var old *peerConn
+    var pending []protocol.Envelope
+
+    switch role {
+    case RolePC:
+        old = rm.pcConn
         rm.pcConn = conn
-        return
+        if len(rm.pendingForPC) > 0 {
+            pending = append(pending, rm.pendingForPC...)
+            rm.pendingForPC = nil
+        }
+
+    case RoleMobile:
+        old = rm.mobileConn
+        rm.mobileConn = conn
+        if len(rm.pendingForMobile) > 0 {
+            pending = append(pending, rm.pendingForMobile...)
+            rm.pendingForMobile = nil
+        }
     }
 
-    if rm.mobileConn != nil {
-        _ = rm.mobileConn.Close()
+    if old != nil {
+        _ = old.Close()
     }
-    rm.mobileConn = conn
+
+    if rm.pcConn != nil && rm.mobileConn != nil {
+        return pending, []*peerConn{rm.pcConn, rm.mobileConn}
+    }
+
+    return pending, nil
 }
 
-func (s *Server) detachConn(sessionID string, role Role, conn *websocket.Conn) {
+func (s *Server) detachConn(sessionID string, role Role, conn *peerConn) {
     s.mu.Lock()
     defer s.mu.Unlock()
 
@@ -194,50 +253,107 @@ func (s *Server) detachConn(sessionID string, role Role, conn *websocket.Conn) {
     }
 }
 
-func (s *Server) readLoop(sessionID string, role Role, conn *websocket.Conn) {
+func (s *Server) readLoop(sessionID string, role Role, conn *peerConn) {
     defer func() {
         s.detachConn(sessionID, role, conn)
         _ = conn.Close()
     }()
 
-    _ = conn.SetReadDeadline(time.Time{})
+    _ = conn.conn.SetReadDeadline(time.Time{})
 
     for {
         var env protocol.Envelope
-        if err := conn.ReadJSON(&env); err != nil {
+        if err := conn.conn.ReadJSON(&env); err != nil {
             return
         }
 
         if err := env.Validate(); err != nil {
+            s.sendServerAck(sessionID, conn, env.RID, false, "invalid envelope")
             continue
         }
 
-        s.forward(sessionID, role, env)
+        if err := validateSignalEnvelope(sessionID, role, env); err != nil {
+            s.sendServerAck(sessionID, conn, env.RID, false, err.Error())
+            continue
+        }
+
+        if err := s.forwardOrQueue(sessionID, role, env); err != nil {
+            s.sendServerAck(sessionID, conn, env.RID, false, err.Error())
+            continue
+        }
+
+        s.sendServerAck(sessionID, conn, env.RID, true, "accepted")
     }
 }
 
-func (s *Server) forward(sessionID string, role Role, env protocol.Envelope) {
+func (s *Server) forwardOrQueue(sessionID string, role Role, env protocol.Envelope) error {
     s.mu.Lock()
-    defer s.mu.Unlock()
-
     rm, ok := s.rooms[sessionID]
     if !ok {
-        return
+        s.mu.Unlock()
+        return fmt.Errorf("room %s not found", sessionID)
     }
 
-    var target *websocket.Conn
+    var target *peerConn
     if role == RolePC {
         target = rm.mobileConn
+        if target == nil {
+            rm.pendingForMobile = appendPending(rm.pendingForMobile, env)
+            s.mu.Unlock()
+            return nil
+        }
     } else {
         target = rm.pcConn
+        if target == nil {
+            rm.pendingForPC = appendPending(rm.pendingForPC, env)
+            s.mu.Unlock()
+            return nil
+        }
+    }
+    s.mu.Unlock()
+
+    return target.WriteJSONWithTimeout(env, 2*time.Second)
+}
+
+func appendPending(queue []protocol.Envelope, env protocol.Envelope) []protocol.Envelope {
+    if len(queue) >= maxPendingSignals {
+        queue = queue[1:]
     }
 
-    if target == nil {
+    return append(queue, env)
+}
+
+func (s *Server) sendServerAck(sessionID string, conn *peerConn, requestRID string, accepted bool, message string) {
+    ack, err := protocol.NewEnvelope(
+        sessionID,
+        fmt.Sprintf("srv_ack_%d", time.Now().UTC().UnixNano()),
+        time.Now().UTC().UnixMilli(),
+        protocol.TypeCmdAck,
+        protocol.CmdAckPayload{
+            RequestRID: requestRID,
+            Accepted:   accepted,
+            Message:    message,
+        },
+    )
+    if err != nil {
         return
     }
 
-    _ = target.SetWriteDeadline(time.Now().Add(2 * time.Second))
-    _ = target.WriteJSON(env)
+    _ = conn.WriteJSONWithTimeout(ack, 2*time.Second)
+}
+
+func buildSignalReadyEnvelope(sessionID string, role Role) (protocol.Envelope, error) {
+    return protocol.NewEnvelope(
+        sessionID,
+        fmt.Sprintf("signal_ready_%d", time.Now().UTC().UnixNano()),
+        time.Now().UTC().UnixMilli(),
+        protocol.TypeSignalReady,
+        protocol.SignalReadyPayload{
+            Role:          string(role),
+            PeerConnected: true,
+            Timestamp:     time.Now().UTC().UnixMilli(),
+        },
+    )
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
