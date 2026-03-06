@@ -56,19 +56,21 @@
 
 - 모바일에서 프로파일 실행 후 요약 결과 수신 가능
 
-### Phase 4: 어댑터 고도화
+### Phase 4: 어댑터/시그널링 고도화
 
-상태: `계약 정의 완료, 실제 Cursor API 연동 미완료`
+상태: `진행 중`
 
-산출물:
+완료된 산출물:
 
-- TypeScript Cursor 브리지 계약
-- Capability 협상 구조
-- 파일/라인 열기 액션 경로
+- TypeScript Cursor 브리지 계약 + Mock 구현
+- 시그널링 `offer/answer/ice` 방향성 검증
+- 상대 미접속 시 시그널 메시지 큐잉 및 재전달
+- `SIGNAL_READY` 이벤트 추가
 
-완료 기준:
+남은 작업:
 
-- PC 에이전트가 어댑터 계약 기반으로 일관되게 호출
+- Cursor 실제 Extension API 연동
+- WebRTC 피어 생성/SDP/ICE 실제 핸들러 결합
 
 ### Phase 5: 안정화/복구
 
@@ -83,13 +85,12 @@
 남은 작업:
 
 - ACK 재전송 정책 구현
-- WebRTC 실제 offer/answer/ICE 연동
 - 통합 장애 시나리오 테스트 자동화
 
 ## 다음 작업 우선순위
 
 1. Go 런타임 설치 후 `go test ./...`와 실제 프로세스 실행 검증
-2. 시그널링 메시지를 WebRTC 세션 핸들러와 결합
+2. 모바일/PC 양쪽 WebRTC 클라이언트 스켈레톤 연결
 3. Flutter Prompt/Review/Status 화면 베이스라인 추가
 4. MockCursorBridge를 실제 Cursor Extension API로 교체
 
@@ -102,4 +103,5 @@
 3. `feat(agent): prompt-patch-run 오케스트레이션 베이스라인`
 4. `feat(cursor-bridge): TypeScript WorkspaceAdapter 계약 추가`
 5. `feat(runtime): 연결 상태머신/ACK 추적기 추가`
-6. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`
+6. `feat(signaling): webrtc signaling 검증/큐잉 강화`
+7. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`

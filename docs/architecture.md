@@ -37,6 +37,26 @@
 
 제어 메시지는 반드시 ACK를 보장하고, 터미널 스트림은 best-effort로 처리합니다.
 
+## 시그널링 레이어(WebRTC 연동)
+
+### 메시지 방향성
+
+- PC -> Mobile: `SIGNAL_OFFER`, `SIGNAL_ICE`
+- Mobile -> PC: `SIGNAL_ANSWER`, `SIGNAL_ICE`
+- Server -> 양쪽: `SIGNAL_READY`
+
+### 검증 정책
+
+- `sid`와 연결된 세션 ID가 반드시 일치해야 함
+- `offer/answer/ice` payload 필수 필드 검증
+- 역할(role)에 맞지 않는 시그널링 타입은 즉시 거절
+
+### 큐잉 정책
+
+- 상대 피어가 아직 없을 때 시그널링 메시지를 세션 큐에 임시 보관
+- 피어가 연결되면 queued signaling 메시지를 먼저 재전달
+- 큐 길이는 상한을 두고 초과 시 oldest 항목 제거
+
 ## 런타임 신뢰성 레이어
 
 ### 연결 상태머신 (`internal/runtime/state_manager.go`)
