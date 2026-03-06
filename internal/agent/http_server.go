@@ -12,18 +12,18 @@ import (
 )
 
 type HTTPServer struct {
-	orchestrator *Orchestrator
-	stateManager *runtime.StateManager
-	ackTracker   *runtime.AckTracker
-	p2pManager   *P2PSessionManager
+	stateManager  *runtime.StateManager
+	ackTracker    *runtime.AckTracker
+	controlRouter *ControlRouter
+	p2pManager    *P2PSessionManager
 }
 
 func NewHTTPServer(orchestrator *Orchestrator, stateManager *runtime.StateManager, ackTracker *runtime.AckTracker, p2pManager *P2PSessionManager) *HTTPServer {
 	return &HTTPServer{
-		orchestrator: orchestrator,
-		stateManager: stateManager,
-		ackTracker:   ackTracker,
-		p2pManager:   p2pManager,
+		stateManager:  stateManager,
+		ackTracker:    ackTracker,
+		controlRouter: NewControlRouter(orchestrator, ackTracker),
+		p2pManager:    p2pManager,
 	}
 }
 
@@ -46,10 +46,20 @@ func (s *HTTPServer) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		p2pActive = s.p2pManager.Status().Active
 	}
 
+	pendingAcks := 0
+	if s.ackTracker != nil {
+		pendingAcks = s.ackTracker.PendingCount()
+	}
+
+	state := runtime.StatePairing
+	if s.stateManager != nil {
+		state = s.stateManager.State()
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":      "ok",
-		"state":       s.stateManager.State(),
-		"pendingAcks": s.ackTracker.PendingCount(),
+		"state":       state,
+		"pendingAcks": pendingAcks,
 		"p2pActive":   p2pActive,
 	})
 }
@@ -66,41 +76,37 @@ func (s *HTTPServer) handleEnvelope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if env.Type == protocol.TypeCmdAck {
-		s.handleInboundAckEnvelope(w, env)
-		return
-	}
-
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	responses, err := s.orchestrator.HandleEnvelope(ctx, env)
-	s.registerOutboundAcks(env.SID, responses)
+	result, err := s.controlRouter.HandleEnvelope(ctx, env)
+	if env.Type == protocol.TypeCmdAck {
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid CMD_ACK payload"})
+			return
+		}
 
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"error":     err.Error(),
-			"responses": responses,
+		pendingAcks := 0
+		if s.ackTracker != nil {
+			pendingAcks = s.ackTracker.PendingCount()
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"handled":     result.AckHandled,
+			"requestRid":  result.AckRequestID,
+			"pendingAcks": pendingAcks,
 		})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"responses": responses})
-}
-
-func (s *HTTPServer) handleInboundAckEnvelope(w http.ResponseWriter, env protocol.Envelope) {
-	var payload protocol.CmdAckPayload
-	if err := env.DecodePayload(&payload); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid CMD_ACK payload"})
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":     err.Error(),
+			"responses": result.Responses,
+		})
 		return
 	}
 
-	handled := s.ackTracker.Ack(payload.RequestRID)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"handled":     handled,
-		"requestRid":  payload.RequestRID,
-		"pendingAcks": s.ackTracker.PendingCount(),
-	})
+	writeJSON(w, http.StatusOK, map[string]any{"responses": result.Responses})
 }
 
 func (s *HTTPServer) handleRuntimeState(w http.ResponseWriter, r *http.Request) {
@@ -241,16 +247,6 @@ func (s *HTTPServer) handleP2PStop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, status)
-}
-
-func (s *HTTPServer) registerOutboundAcks(sid string, responses []protocol.Envelope) {
-	for _, response := range responses {
-		if response.Type == protocol.TypeCmdAck {
-			continue
-		}
-
-		s.ackTracker.Register(sid, response.RID, string(response.Type))
-	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

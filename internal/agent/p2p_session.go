@@ -54,8 +54,9 @@ type p2pRuntime struct {
 }
 
 type P2PSessionManager struct {
-	stateManager *runtime.StateManager
-	httpClient   *http.Client
+	stateManager  *runtime.StateManager
+	controlRouter *ControlRouter
+	httpClient    *http.Client
 
 	defaultSignalingBaseURL string
 
@@ -65,13 +66,14 @@ type P2PSessionManager struct {
 	started bool
 }
 
-func NewP2PSessionManager(stateManager *runtime.StateManager, signalingBaseURL string) *P2PSessionManager {
+func NewP2PSessionManager(stateManager *runtime.StateManager, ackTracker *runtime.AckTracker, orchestrator *Orchestrator, signalingBaseURL string) *P2PSessionManager {
 	if strings.TrimSpace(signalingBaseURL) == "" {
 		signalingBaseURL = "http://127.0.0.1:8081"
 	}
 
 	return &P2PSessionManager{
-		stateManager: stateManager,
+		stateManager:  stateManager,
+		controlRouter: NewControlRouter(orchestrator, ackTracker),
 		httpClient: &http.Client{
 			Timeout: 6 * time.Second,
 		},
@@ -164,6 +166,7 @@ func (m *P2PSessionManager) Start(ctx context.Context, req StartP2PRequest) (P2P
 	go m.wsWriteLoop(sessionCtx, rt)
 	go m.bridgeErrorLoop(sessionCtx, rt)
 	go m.peerStateLoop(sessionCtx, rt)
+	go m.peerMessageLoop(sessionCtx, rt)
 
 	return m.Status(), nil
 }
@@ -358,6 +361,68 @@ func (m *P2PSessionManager) peerStateLoop(ctx context.Context, rt *p2pRuntime) {
 			return
 		}
 	}
+}
+
+func (m *P2PSessionManager) peerMessageLoop(ctx context.Context, rt *p2pRuntime) {
+	for {
+		select {
+		case message := <-rt.peer.Messages():
+			var env protocol.Envelope
+			if err := json.Unmarshal(message, &env); err != nil {
+				m.setLastError(fmt.Sprintf("decode control envelope failed: %v", err))
+				continue
+			}
+
+			if err := env.Validate(); err != nil {
+				m.setLastError(fmt.Sprintf("invalid control envelope: %v", err))
+				continue
+			}
+
+			if env.SID != rt.sessionID {
+				m.setLastError(fmt.Sprintf("control envelope sid mismatch: expected=%s got=%s", rt.sessionID, env.SID))
+				continue
+			}
+
+			handleCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			result, err := m.controlRouter.HandleEnvelope(handleCtx, env)
+			cancel()
+			if err != nil {
+				m.setLastError(fmt.Sprintf("control envelope handling failed: %v", err))
+			}
+
+			if env.Type == protocol.TypeCmdAck {
+				continue
+			}
+
+			for _, response := range result.Responses {
+				if err := m.sendPeerEnvelope(rt, response); err != nil {
+					if ctx.Err() != nil {
+						return
+					}
+					m.setLastError(fmt.Sprintf("send control response failed: %v", err))
+					m.stateManager.BeginReconnect()
+					m.updateStateSnapshot()
+					return
+				}
+			}
+
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (m *P2PSessionManager) sendPeerEnvelope(rt *p2pRuntime, env protocol.Envelope) error {
+	data, err := json.Marshal(env)
+	if err != nil {
+		return fmt.Errorf("marshal envelope: %w", err)
+	}
+
+	if err := rt.peer.Send(data); err != nil {
+		return fmt.Errorf("peer send: %w", err)
+	}
+
+	return nil
 }
 
 func buildPairingURL(signalingBaseURL string) (string, error) {

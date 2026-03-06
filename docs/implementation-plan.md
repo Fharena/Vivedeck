@@ -90,19 +90,22 @@
   - pairing 생성
   - PC signaling WS 연결
   - SignalBridge 런타임/상태머신 연동
+- ControlRouter(`internal/agent/control_router.go`) 추가
+  - HTTP/P2P 공통 envelope 처리
+  - DataChannel inbound 제어 메시지(`PROMPT_SUBMIT`, `PATCH_APPLY`, `RUN_PROFILE`)를 오케스트레이터와 연결
+  - outbound 응답(`CMD_ACK`, `PROMPT_ACK`, `PATCH_READY`, `RUN_RESULT`)의 ACK 추적기 등록 일원화
 
 남은 작업:
 
 - Cursor 실제 Extension API 연동
-- agent P2P 오케스트레이터와 prompt/patch/run 제어 경로를 단일 세션으로 통합
 - 모바일(WebRTC 클라이언트) 구현 및 상호운용 테스트
 
 ## 다음 작업 우선순위
 
-1. agent P2P 오케스트레이터에 제어 메시지(Envelope) 라우팅 결합
-2. 모바일/PC 양쪽 WebRTC 클라이언트 스켈레톤 연결
-3. Flutter Prompt/Review/Status 화면 베이스라인 추가
-4. MockCursorBridge를 실제 Cursor Extension API로 교체
+1. 모바일(WebRTC 클라이언트) 구현 및 상호운용 테스트 확장
+2. Flutter Prompt/Review/Status 화면 베이스라인 추가
+3. MockCursorBridge를 실제 Cursor Extension API로 교체
+4. ACK 재전송/자동 복구(backoff) 정책 구현
 
 ## 커밋 전략
 
@@ -117,4 +120,5 @@
 7. `feat(webrtc): pc/mobile datachannel skeleton`
 8. `feat(webrtc): signaling bridge runtime`
 9. `feat(agent): p2p session orchestrator`
-10. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`
+10. `feat(agent): p2p envelope routing 통합`
+11. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`

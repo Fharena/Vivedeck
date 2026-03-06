@@ -16,7 +16,7 @@ func newTestHTTPServer() (*HTTPServer, *runtime.AckTracker) {
 	orch := NewOrchestrator(NewMockAdapter(), DefaultRunProfiles())
 	stateManager := runtime.NewStateManager(runtime.DefaultManagerConfig())
 	ackTracker := runtime.NewAckTracker(2 * time.Second)
-	p2pManager := NewP2PSessionManager(stateManager, "http://127.0.0.1:8081")
+	p2pManager := NewP2PSessionManager(stateManager, ackTracker, orch, "http://127.0.0.1:8081")
 
 	server := NewHTTPServer(
 		orch,
