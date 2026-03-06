@@ -19,3 +19,7 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local toolchains
+tools/flutter/
+tools/flutter_windows_*.zip

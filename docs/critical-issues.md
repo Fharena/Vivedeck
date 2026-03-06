@@ -8,18 +8,18 @@
 
 ## 현재 환경 리스크(관측)
 
-### 2026-03-06 / TOOLCHAIN-002 / Flutter 미설치
+### 2026-03-06 / TOOLCHAIN-002 / Flutter 전역 PATH 미설정
 
-- 증상: `flutter` 명령 인식 실패
-- 영향: `flutter pub get`, `flutter run`, `flutter test` 자동 검증 불가
+- 증상: 시스템 전역 `flutter` 명령 인식 실패
+- 영향: 팀원/CI 환경마다 Flutter 실행 경로 불일치 가능성
 - 즉시 대응:
-  - 수동 스캐폴딩으로 `mobile/flutter_app` 베이스라인 작성(Prompt/Review/Status)
-  - 런타임 연동은 mock state 기반 UI로 분리
+  - 로컬 SDK를 `tools/flutter`에 설치
+  - `tools/flutter/bin/flutter.bat` 기준으로 `pub get`, `analyze`, `test` 검증 수행
 - 영구 대응:
-  - Flutter SDK 설치 및 PATH 설정 확인(`flutter --version`)
-  - 모바일 앱 smoke test(`flutter pub get && flutter test`)를 CI에 추가
+  - Flutter SDK 전역 PATH 표준화 또는 `fvm` 도입
+  - CI에 모바일 smoke test(`flutter pub get && flutter test`) 추가
 - 학습 포인트:
-  - 도구체인 부재 시에도 화면 계약/상태 모델을 먼저 고정하면 이후 연동 리스크를 줄일 수 있음
+  - 도구체인은 "설치 여부"뿐 아니라 "실행 경로 표준화"까지 완료돼야 팀 생산성이 안정화됨
 
 ## 런타임 리스크(설계)
 
@@ -120,4 +120,5 @@
 - 영구 해결 방식:
 - 추가한 회귀 테스트:
 - 학습 포인트:
+
 
