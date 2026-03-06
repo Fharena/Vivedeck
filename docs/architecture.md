@@ -73,6 +73,21 @@
 - `WaitForState()` / `WaitDataChannelOpen()`
 - `Send()`
 
+## SignalBridge 런타임 (`internal/webrtc/bridge.go`)
+
+- signaling envelope를 WebRTC peer 동작으로 변환하는 어댑터 계층
+- PC bridge는 `SIGNAL_READY` 이후 offer를 생성하고 송신
+- Mobile bridge는 offer를 받아 answer를 생성해 송신
+- 양쪽 모두 `SIGNAL_ICE`를 remote candidate로 적용
+
+핵심 메서드:
+
+- `Run(ctx)`
+- `InboundEnvelope()`
+- `ProcessEnvelope()`
+- `StartOffer()`
+- `Outbound()` / `Errors()`
+
 ## 런타임 신뢰성 레이어
 
 ### 연결 상태머신 (`internal/runtime/state_manager.go`)

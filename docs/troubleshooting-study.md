@@ -85,6 +85,21 @@
 2. ICE candidate 전달 로그를 양쪽(peer A/B)에서 비교한다.
 3. open timeout 값을 환경별(CI/로컬)로 분리해 검증한다.
 
+## 7. SignalBridge 처리 누락/순서 문제
+
+관찰 포인트:
+
+- `SIGNAL_READY`가 왔는데 offer가 생성되지 않는지
+- answer 적용 전에 ice만 먼저 와서 오류가 나는지
+- bridge errors 채널에 sid mismatch/unsupported type이 누적되는지
+
+학습 순서:
+
+1. bridge의 inbound/outbound envelope를 `sid,type,rid` 기준으로 트레이싱한다.
+2. `SIGNAL_READY -> OFFER -> ANSWER -> ICE` 최소 순서가 만족되는지 확인한다.
+3. offer 중복 생성 방지 플래그(`offerStarted`) 동작을 검증한다.
+4. signaling 서버 ACK와 bridge 내부 에러를 분리해 원인 범위를 좁힌다.
+
 ## 실전 기록 규칙
 
 - 장애 하나당 티켓/문서 항목 하나를 유지한다.
