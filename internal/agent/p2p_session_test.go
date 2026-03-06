@@ -281,6 +281,167 @@ func TestP2PSessionManagerRoutesControlEnvelopeOverDataChannel(t *testing.T) {
 	t.Fatalf("acked rid should be removed from pending: %s", targetRID)
 }
 
+func TestP2PSessionManagerMobileControlFlowE2E(t *testing.T) {
+	ts := newSignalingTestServer(t)
+	defer ts.Close()
+
+	manager, ackTracker := newP2PTestManager(ts.URL)
+
+	status, err := manager.Start(context.Background(), StartP2PRequest{})
+	if err != nil {
+		t.Fatalf("start p2p session: %v", err)
+	}
+	defer func() { _, _ = manager.Stop() }()
+
+	mobileSessionID, mobileKey, err := claimPairing(ts.URL, status.PairingCode)
+	if err != nil {
+		t.Fatalf("claim pairing: %v", err)
+	}
+	if mobileSessionID != status.SessionID {
+		t.Fatalf("session id mismatch: claimed=%s status=%s", mobileSessionID, status.SessionID)
+	}
+
+	mobileConn, err := dialMobileWS(ts.URL, status.SessionID, mobileKey)
+	if err != nil {
+		t.Fatalf("dial mobile ws: %v", err)
+	}
+	defer mobileConn.Close()
+
+	mobilePeer, err := webrtc.NewPeer(webrtc.DefaultConfig(webrtc.SideMobile))
+	if err != nil {
+		t.Fatalf("new mobile peer: %v", err)
+	}
+	defer func() { _ = mobilePeer.Close() }()
+
+	mobileBridge, err := webrtc.NewSignalBridge(status.SessionID, webrtc.SideMobile, mobilePeer)
+	if err != nil {
+		t.Fatalf("new mobile bridge: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go mobileBridge.Run(ctx)
+	go mobileReadLoop(ctx, t, mobileConn, mobileBridge)
+	go mobileWriteLoop(ctx, t, mobileConn, mobileBridge)
+
+	waitForManagerState(t, manager, runtime.StateP2PConnected, 12*time.Second)
+	if err := mobilePeer.WaitDataChannelOpen(5 * time.Second); err != nil {
+		t.Fatalf("mobile data channel open: %v", err)
+	}
+
+	submitEnv, err := protocol.NewEnvelope(status.SessionID, "rid-submit-e2e", 1, protocol.TypePromptSubmit, protocol.PromptSubmitPayload{
+		Prompt:         "Fix auth middleware",
+		ContextOptions: protocol.ContextOptions{},
+	})
+	if err != nil {
+		t.Fatalf("build submit envelope: %v", err)
+	}
+	sendEnvelopeToPeer(t, mobilePeer, submitEnv)
+
+	submitResponses := collectResponsesByType(
+		t,
+		mobilePeer,
+		map[protocol.MessageType]int{
+			protocol.TypeCmdAck:     1,
+			protocol.TypePromptAck:  1,
+			protocol.TypePatchReady: 1,
+		},
+		8*time.Second,
+	)
+
+	promptAckEnv, ok := firstResponseByType(submitResponses, protocol.TypePromptAck)
+	if !ok {
+		t.Fatalf("PROMPT_ACK response not found")
+	}
+	var promptAck protocol.PromptAckPayload
+	if err := promptAckEnv.DecodePayload(&promptAck); err != nil {
+		t.Fatalf("decode prompt ack payload: %v", err)
+	}
+	if promptAck.JobID == "" {
+		t.Fatalf("job id should be set in prompt ack")
+	}
+
+	for _, response := range submitResponses {
+		if response.Type == protocol.TypeCmdAck {
+			continue
+		}
+		sendCmdAckToPeer(t, mobilePeer, status.SessionID, response.RID, 100+response.Seq)
+		waitAckRemoved(t, ackTracker, response.RID, 4*time.Second)
+	}
+
+	patchEnv, err := protocol.NewEnvelope(status.SessionID, "rid-patch-e2e", 2, protocol.TypePatchApply, protocol.PatchApplyPayload{
+		JobID: promptAck.JobID,
+		Mode:  "all",
+	})
+	if err != nil {
+		t.Fatalf("build patch apply envelope: %v", err)
+	}
+	sendEnvelopeToPeer(t, mobilePeer, patchEnv)
+
+	patchResponses := collectResponsesByType(
+		t,
+		mobilePeer,
+		map[protocol.MessageType]int{
+			protocol.TypeCmdAck:      1,
+			protocol.TypePatchResult: 1,
+		},
+		8*time.Second,
+	)
+
+	patchResultEnv, ok := firstResponseByType(patchResponses, protocol.TypePatchResult)
+	if !ok {
+		t.Fatalf("PATCH_RESULT response not found")
+	}
+	var patchResult protocol.PatchResultPayload
+	if err := patchResultEnv.DecodePayload(&patchResult); err != nil {
+		t.Fatalf("decode patch result payload: %v", err)
+	}
+	if patchResult.Status != "success" {
+		t.Fatalf("expected patch result success, got %s", patchResult.Status)
+	}
+	sendCmdAckToPeer(t, mobilePeer, status.SessionID, patchResultEnv.RID, 200)
+	waitAckRemoved(t, ackTracker, patchResultEnv.RID, 4*time.Second)
+
+	runEnv, err := protocol.NewEnvelope(status.SessionID, "rid-run-e2e", 3, protocol.TypeRunProfile, protocol.RunProfilePayload{
+		JobID:     promptAck.JobID,
+		ProfileID: "test_all",
+	})
+	if err != nil {
+		t.Fatalf("build run profile envelope: %v", err)
+	}
+	sendEnvelopeToPeer(t, mobilePeer, runEnv)
+
+	runResponses := collectResponsesByType(
+		t,
+		mobilePeer,
+		map[protocol.MessageType]int{
+			protocol.TypeCmdAck:    1,
+			protocol.TypeRunResult: 1,
+		},
+		8*time.Second,
+	)
+
+	runResultEnv, ok := firstResponseByType(runResponses, protocol.TypeRunResult)
+	if !ok {
+		t.Fatalf("RUN_RESULT response not found")
+	}
+	var runResult protocol.RunResultPayload
+	if err := runResultEnv.DecodePayload(&runResult); err != nil {
+		t.Fatalf("decode run result payload: %v", err)
+	}
+	if runResult.JobID != promptAck.JobID {
+		t.Fatalf("run result job id mismatch: got=%s want=%s", runResult.JobID, promptAck.JobID)
+	}
+	if runResult.ProfileID != "test_all" {
+		t.Fatalf("run result profile mismatch: got=%s", runResult.ProfileID)
+	}
+	sendCmdAckToPeer(t, mobilePeer, status.SessionID, runResultEnv.RID, 300)
+	waitAckRemoved(t, ackTracker, runResultEnv.RID, 4*time.Second)
+
+	waitForPendingAckCount(t, ackTracker, 0, 4*time.Second)
+	waitForManagerState(t, manager, runtime.StateP2PConnected, 2*time.Second)
+}
 func claimPairing(baseURL, code string) (sessionID string, mobileKey string, err error) {
 	url := strings.TrimRight(baseURL, "/") + "/v1/pairings/" + code + "/claim"
 	req, err := http.NewRequest(http.MethodPost, url, nil)
@@ -363,4 +524,108 @@ func mobileWriteLoop(ctx context.Context, t *testing.T, conn *websocket.Conn, br
 			return
 		}
 	}
+}
+
+func sendEnvelopeToPeer(t *testing.T, peer *webrtc.Peer, env protocol.Envelope) {
+	t.Helper()
+
+	data, err := json.Marshal(env)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	if err := peer.Send(data); err != nil {
+		t.Fatalf("peer send envelope: %v", err)
+	}
+}
+
+func collectResponsesByType(t *testing.T, peer *webrtc.Peer, expected map[protocol.MessageType]int, timeout time.Duration) []protocol.Envelope {
+	t.Helper()
+
+	received := make([]protocol.Envelope, 0, len(expected))
+	counts := make(map[protocol.MessageType]int)
+	deadline := time.After(timeout)
+
+	for {
+		done := true
+		for typ, need := range expected {
+			if counts[typ] < need {
+				done = false
+				break
+			}
+		}
+		if done {
+			return received
+		}
+
+		select {
+		case raw := <-peer.Messages():
+			var response protocol.Envelope
+			if err := json.Unmarshal(raw, &response); err != nil {
+				t.Fatalf("decode response envelope: %v", err)
+			}
+			received = append(received, response)
+			counts[response.Type]++
+
+		case <-deadline:
+			t.Fatalf("timeout waiting expected response types: %#v, received=%#v", expected, counts)
+		}
+	}
+}
+
+func firstResponseByType(responses []protocol.Envelope, typ protocol.MessageType) (protocol.Envelope, bool) {
+	for _, response := range responses {
+		if response.Type == typ {
+			return response, true
+		}
+	}
+	return protocol.Envelope{}, false
+}
+
+func sendCmdAckToPeer(t *testing.T, peer *webrtc.Peer, sid, requestRID string, seq int64) {
+	t.Helper()
+
+	ackEnv, err := protocol.NewEnvelope(sid, fmt.Sprintf("rid-mobile-ack-%d", seq), seq, protocol.TypeCmdAck, protocol.CmdAckPayload{
+		RequestRID: requestRID,
+		Accepted:   true,
+		Message:    "received",
+	})
+	if err != nil {
+		t.Fatalf("build cmd ack envelope: %v", err)
+	}
+	sendEnvelopeToPeer(t, peer, ackEnv)
+}
+
+func waitAckRemoved(t *testing.T, tracker *runtime.AckTracker, rid string, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		found := false
+		for _, pending := range tracker.Snapshot() {
+			if pending.RID == rid {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return
+		}
+		time.Sleep(80 * time.Millisecond)
+	}
+
+	t.Fatalf("ack rid still pending: %s", rid)
+}
+
+func waitForPendingAckCount(t *testing.T, tracker *runtime.AckTracker, expected int, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if tracker.PendingCount() == expected {
+			return
+		}
+		time.Sleep(80 * time.Millisecond)
+	}
+
+	t.Fatalf("pending ack count mismatch: got=%d want=%d", tracker.PendingCount(), expected)
 }
