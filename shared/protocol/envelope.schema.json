@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibedeck.dev/schemas/envelope.json",
+  "title": "Envelope",
+  "type": "object",
+  "required": ["sid", "rid", "seq", "ts", "type", "payload"],
+  "properties": {
+    "sid": { "type": "string", "minLength": 1 },
+    "rid": { "type": "string", "minLength": 1 },
+    "seq": { "type": "integer", "minimum": 0 },
+    "ts": { "type": "integer", "minimum": 0 },
+    "type": { "type": "string", "minLength": 1 },
+    "payload": {}
+  },
+  "additionalProperties": false
+}
