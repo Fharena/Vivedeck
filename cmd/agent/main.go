@@ -25,7 +25,7 @@ func main() {
 
 	stateManager := runtime.NewStateManager(runtime.DefaultManagerConfig())
 	ackTracker := runtime.NewAckTracker(2 * time.Second)
-	p2pManager := agent.NewP2PSessionManager(stateManager, signalingBaseURL)
+	p2pManager := agent.NewP2PSessionManager(stateManager, ackTracker, orchestrator, signalingBaseURL)
 
 	server := agent.NewHTTPServer(orchestrator, stateManager, ackTracker, p2pManager)
 

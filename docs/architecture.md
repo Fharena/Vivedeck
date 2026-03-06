@@ -94,14 +94,26 @@
 - `/v1/pairings` 호출로 pairing code/session/deviceKey 발급
 - PC role WS 연결 후 bridge 런타임 시작
 - `runtime.StateManager`와 연결해 상태를 동기화
+- WebRTC DataChannel 메시지를 공통 제어 라우터로 전달
 
 오케스트레이터 흐름:
 
 1. `Start()` -> pairing 생성 -> WS 연결 -> `SIGNALING`
 2. `SIGNAL_READY` 수신 후 offer 송신 -> `P2P_CONNECTING`
 3. answer 적용 및 peer connected -> `P2P_CONNECTED`
-4. WS/bridge/peer 오류 -> `RECONNECTING`
-5. `Stop()` -> peer/ws 정리 -> `CLOSED`
+4. DataChannel inbound envelope -> orchestrator 처리 -> 응답 envelope DataChannel 송신
+5. WS/bridge/peer 오류 -> `RECONNECTING`
+6. `Stop()` -> peer/ws 정리 -> `CLOSED`
+
+## ControlRouter (`internal/agent/control_router.go`)
+
+- HTTP(`/v1/agent/envelope`)와 P2P(DataChannel) 경로가 같은 envelope 처리 규칙을 공유
+- 일반 제어 메시지:
+  - `Orchestrator.HandleEnvelope()` 실행
+  - 응답 envelope를 반환하고 non-ACK 응답은 `AckTracker`에 등록
+- `CMD_ACK` 메시지:
+  - `AckTracker.Ack(requestRid)`로 pending을 소거
+  - 경로별 반환 형식만 다르고 내부 동작은 동일
 
 ## 런타임 신뢰성 레이어
 
