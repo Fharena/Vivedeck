@@ -97,16 +97,20 @@
 - 모바일 상호운용 E2E 테스트 확장(`internal/agent/p2p_session_test.go`)
   - DataChannel 기반 `PROMPT -> PATCH_APPLY -> RUN_PROFILE` 전체 루프 검증
   - 모바일 `CMD_ACK` 수신 후 pending ACK 소거까지 검증
+- Flutter 화면 베이스라인(`mobile/flutter_app`) 추가
+  - Prompt/Review/Status 3개 탭 화면 구성
+  - 모바일 제어 루프 UI 액션 초안 배치
 
 남은 작업:
 
 - Cursor 실제 Extension API 연동
 - 모바일(WebRTC 클라이언트) 실제 구현(Flutter) 및 상호운용 테스트 자동화
+- Flutter 화면과 agent runtime/p2p API 실제 연결
 
 ## 다음 작업 우선순위
 
-1. Flutter Prompt/Review/Status 화면 베이스라인 추가
-2. 모바일(WebRTC 클라이언트) 실제 구현 및 서버/에이전트 연결
+1. 모바일(WebRTC 클라이언트) 실제 구현 및 서버/에이전트 연결
+2. Flutter 화면과 agent runtime/p2p API 연동
 3. MockCursorBridge를 실제 Cursor Extension API로 교체
 4. ACK 재전송/자동 복구(backoff) 정책 구현
 
@@ -125,5 +129,7 @@
 9. `feat(agent): p2p session orchestrator`
 10. `feat(agent): p2p envelope routing 통합`
 11. `test(agent): mobile control flow interop e2e 추가`
-12. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`
+12. `feat(mobile): flutter prompt/review/status baseline`
+13. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`
+
 

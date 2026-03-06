@@ -1,4 +1,4 @@
-# 아키텍처
+﻿# 아키텍처
 
 ## 시스템 구성 요소
 
@@ -7,6 +7,13 @@
 - Cursor 브리지(TypeScript): 컨텍스트 조회, 패치 적용, 파일/라인 열기
 - Signaling 서버(Go): 페어링 및 WebRTC 시그널링 부트스트랩
 - Relay 서버(Go): 폴백 이벤트 라우팅 + 백프레셔 정책
+
+## Flutter UI 베이스라인 (`mobile/flutter_app`)
+
+- `PromptScreen`: 프롬프트 입력, 템플릿 선택, context 옵션 토글
+- `ReviewScreen`: 파일/헝크 목록 검토와 전체/선택 적용 액션
+- `StatusScreen`: 연결 상태, pending ACK, 히스토리 표시
+- 현재 단계는 mock state 기반 UI이며, 다음 단계에서 `/v1/agent/*` API 연동 예정
 
 ## 핵심 인터페이스
 
@@ -166,3 +173,5 @@
 - 클레임 성공 후 디바이스 키 발급
 - MVP에서 HIGH 권한 동작은 기본 비활성화
 - 서버에는 최소 세션 메타데이터만 저장
+
+
