@@ -14,14 +14,16 @@ Flutter SDK가 PATH에 있어야 합니다.
 
 ```bash
 flutter --version
+# 또는 저장소 루트 기준
+.\tools\flutter\bin\flutter.bat --version
 ```
 
 ## 로컬 실행
 
 ```bash
 cd mobile/flutter_app
-flutter pub get
-flutter run
+..\..\tools\flutter\bin\flutter.bat pub get
+..\..\tools\flutter\bin\flutter.bat run
 ```
 
 ## 메모

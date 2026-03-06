@@ -1,5 +1,4 @@
 ﻿import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'screens/prompt_screen.dart';
 import 'screens/review_screen.dart';
@@ -10,7 +9,7 @@ class VibeDeckApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final baseTextTheme = GoogleFonts.notoSansKrTextTheme();
+    final baseTextTheme = ThemeData.light().textTheme;
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
@@ -21,21 +20,25 @@ class VibeDeckApp extends StatelessWidget {
           seedColor: const Color(0xFF1F8C77),
           brightness: Brightness.light,
         ),
+        fontFamily: 'monospace',
         textTheme: baseTextTheme.copyWith(
-          headlineLarge: GoogleFonts.spaceGrotesk(
+          headlineLarge: const TextStyle(
             fontSize: 36,
             fontWeight: FontWeight.w700,
-            color: const Color(0xFF0F2D28),
+            fontFamily: 'serif',
+            color: Color(0xFF0F2D28),
           ),
-          headlineMedium: GoogleFonts.spaceGrotesk(
+          headlineMedium: const TextStyle(
             fontSize: 24,
             fontWeight: FontWeight.w700,
-            color: const Color(0xFF0F2D28),
+            fontFamily: 'serif',
+            color: Color(0xFF0F2D28),
           ),
-          titleLarge: GoogleFonts.spaceGrotesk(
+          titleLarge: const TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.w700,
-            color: const Color(0xFF0F2D28),
+            fontFamily: 'serif',
+            color: Color(0xFF0F2D28),
           ),
         ),
       ),
