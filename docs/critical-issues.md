@@ -1,4 +1,4 @@
-# 크리티컬 이슈 및 학습 노트
+﻿# 크리티컬 이슈 및 학습 노트
 
 개발 중 발생하는 장애/고위험 이슈를 기록합니다.
 
@@ -11,13 +11,15 @@
 ### 2026-03-06 / TOOLCHAIN-002 / Flutter 미설치
 
 - 증상: `flutter` 명령 인식 실패
-- 영향: 모바일 앱 부트스트랩 및 화면/전송 연동 검증 미실행
-- 즉시 대응: 이번 턴은 서버/에이전트/브리지 계약 구현에 집중
+- 영향: `flutter pub get`, `flutter run`, `flutter test` 자동 검증 불가
+- 즉시 대응:
+  - 수동 스캐폴딩으로 `mobile/flutter_app` 베이스라인 작성(Prompt/Review/Status)
+  - 런타임 연동은 mock state 기반 UI로 분리
 - 영구 대응:
-  - Flutter SDK 설치 후 최소 3개 화면(Prompt/Review/Status) 스캐폴딩
-  - 시그널링/릴레이 연결 smoke test 작성
+  - Flutter SDK 설치 및 PATH 설정 확인(`flutter --version`)
+  - 모바일 앱 smoke test(`flutter pub get && flutter test`)를 CI에 추가
 - 학습 포인트:
-  - 모바일 UI보다 먼저 프로토콜 스키마를 고정하면 화면 구현 속도가 빨라짐
+  - 도구체인 부재 시에도 화면 계약/상태 모델을 먼저 고정하면 이후 연동 리스크를 줄일 수 있음
 
 ## 런타임 리스크(설계)
 
@@ -118,3 +120,4 @@
 - 영구 해결 방식:
 - 추가한 회귀 테스트:
 - 학습 포인트:
+
