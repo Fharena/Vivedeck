@@ -37,10 +37,44 @@
 
 제어 메시지는 반드시 ACK를 보장하고, 터미널 스트림은 best-effort로 처리합니다.
 
+## 런타임 신뢰성 레이어
+
+### 연결 상태머신 (`internal/runtime/state_manager.go`)
+
+지원 상태:
+
+- `PAIRING`
+- `SIGNALING`
+- `P2P_CONNECTING`
+- `P2P_CONNECTED`
+- `RELAY_CONNECTED`
+- `RECONNECTING`
+- `CLOSED`
+
+정책:
+
+- `BeginP2P()` 후 타임아웃이 나면 자동으로 Relay fallback
+- P2P 성공 시 타이머 즉시 정리
+- 상태 변경 히스토리를 밀리초 단위로 보관
+
+### ACK 추적기 (`internal/runtime/ack_tracker.go`)
+
+정책:
+
+- 에이전트가 전송한 제어 응답(`PROMPT_ACK`, `PATCH_READY`, `RUN_RESULT` 등)을 pending ACK로 등록
+- TTL 초과 항목을 `Expired()`로 회수
+- 만료 ACK가 발생하면 연결 상태를 `RECONNECTING`으로 전환해 복구 흐름 시작
+
+### 운영 엔드포인트
+
+- `GET /v1/agent/runtime/state`: 현재 상태 + 상태 히스토리 조회
+- `POST /v1/agent/runtime/state`: 상태 전환 액션 트리거
+- `GET /v1/agent/runtime/acks/expired`: 만료 ACK 확인
+
 ## 신뢰성 규칙
 
 - 제어 경로(CMD/PATCH/RUN)를 터미널 스트림보다 우선 처리
-- 과부하시 터미널 라인을 드롭하고 synthetic summary 이벤트 전송
+- 과부하시 터미널 라인을 드롭하고 `TERM_SUMMARY` 이벤트 전송
 - 전송 모드가 바뀌어도 동일 세션 의미론 유지
 
 ## 보안 베이스라인

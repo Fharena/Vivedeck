@@ -13,6 +13,8 @@
 
 ### Phase 1: 연결 베이스라인
 
+상태: `완료(베이스라인)`
+
 산출물:
 
 - 페어링 코드 생성/클레임 API
@@ -27,6 +29,8 @@
 
 ### Phase 2: Prompt -> Patch -> Apply
 
+상태: `베이스라인 완료`
+
 산출물:
 
 - 프롬프트 제출 ACK 플로우
@@ -40,6 +44,8 @@
 
 ### Phase 3: Run -> Result
 
+상태: `베이스라인 완료`
+
 산출물:
 
 - 실행 프로파일 로더(`test_last`, `test_all`, `build`, `dev`)
@@ -51,6 +57,8 @@
 - 모바일에서 프로파일 실행 후 요약 결과 수신 가능
 
 ### Phase 4: 어댑터 고도화
+
+상태: `계약 정의 완료, 실제 Cursor API 연동 미완료`
 
 산출물:
 
@@ -64,15 +72,26 @@
 
 ### Phase 5: 안정화/복구
 
-산출물:
+상태: `진행 중`
 
-- 제어 경로 ACK 보장
-- 터미널 스트림 백프레셔 정책
-- 재연결 동작 정리
+완료된 산출물:
 
-완료 기준:
+- 제어 경로 ACK 추적기 베이스라인
+- 연결 상태머신(P2P timeout -> Relay fallback)
+- 터미널 백프레셔(`TERM_SUMMARY`) 정책
 
-- 로그 과부하 상황에서도 제어 메시지가 안정적으로 처리
+남은 작업:
+
+- ACK 재전송 정책 구현
+- WebRTC 실제 offer/answer/ICE 연동
+- 통합 장애 시나리오 테스트 자동화
+
+## 다음 작업 우선순위
+
+1. Go 런타임 설치 후 `go test ./...`와 실제 프로세스 실행 검증
+2. 시그널링 메시지를 WebRTC 세션 핸들러와 결합
+3. Flutter Prompt/Review/Status 화면 베이스라인 추가
+4. MockCursorBridge를 실제 Cursor Extension API로 교체
 
 ## 커밋 전략
 
@@ -82,4 +101,5 @@
 2. `feat(signaling,relay): 페어링/시그널링/릴레이 베이스라인`
 3. `feat(agent): prompt-patch-run 오케스트레이션 베이스라인`
 4. `feat(cursor-bridge): TypeScript WorkspaceAdapter 계약 추가`
-5. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`
+5. `feat(runtime): 연결 상태머신/ACK 추적기 추가`
+6. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`
