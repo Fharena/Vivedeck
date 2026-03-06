@@ -1,4 +1,4 @@
-# 구현 계획
+﻿# 구현 계획
 
 이 문서는 VibeDeck MVP 구현 순서와 완료 기준을 관리합니다.
 
@@ -94,16 +94,19 @@
   - HTTP/P2P 공통 envelope 처리
   - DataChannel inbound 제어 메시지(`PROMPT_SUBMIT`, `PATCH_APPLY`, `RUN_PROFILE`)를 오케스트레이터와 연결
   - outbound 응답(`CMD_ACK`, `PROMPT_ACK`, `PATCH_READY`, `RUN_RESULT`)의 ACK 추적기 등록 일원화
+- 모바일 상호운용 E2E 테스트 확장(`internal/agent/p2p_session_test.go`)
+  - DataChannel 기반 `PROMPT -> PATCH_APPLY -> RUN_PROFILE` 전체 루프 검증
+  - 모바일 `CMD_ACK` 수신 후 pending ACK 소거까지 검증
 
 남은 작업:
 
 - Cursor 실제 Extension API 연동
-- 모바일(WebRTC 클라이언트) 구현 및 상호운용 테스트
+- 모바일(WebRTC 클라이언트) 실제 구현(Flutter) 및 상호운용 테스트 자동화
 
 ## 다음 작업 우선순위
 
-1. 모바일(WebRTC 클라이언트) 구현 및 상호운용 테스트 확장
-2. Flutter Prompt/Review/Status 화면 베이스라인 추가
+1. Flutter Prompt/Review/Status 화면 베이스라인 추가
+2. 모바일(WebRTC 클라이언트) 실제 구현 및 서버/에이전트 연결
 3. MockCursorBridge를 실제 Cursor Extension API로 교체
 4. ACK 재전송/자동 복구(backoff) 정책 구현
 
@@ -121,4 +124,6 @@
 8. `feat(webrtc): signaling bridge runtime`
 9. `feat(agent): p2p session orchestrator`
 10. `feat(agent): p2p envelope routing 통합`
-11. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`
+11. `test(agent): mobile control flow interop e2e 추가`
+12. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`
+
