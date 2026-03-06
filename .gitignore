@@ -1,0 +1,21 @@
+# Build outputs
+bin/
+out/
+coverage/
+
+# Go
+*.test
+*.exe
+*.out
+
+# Node
+node_modules/
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
