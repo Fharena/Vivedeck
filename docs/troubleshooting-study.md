@@ -72,6 +72,19 @@
 3. 큐잉된 메시지가 peer 연결 시 재전달되는지 검증한다.
 4. `SIGNAL_READY` 이벤트 이후 협상 시작 타이밍을 통일한다.
 
+## 6. DataChannel open 지연/실패
+
+관찰 포인트:
+
+- `connected` 상태인데 data channel open 이벤트가 지연되는지
+- 메시지 송신 시 `data channel is not open` 에러 비율
+
+학습 순서:
+
+1. `WaitForState(connected)`와 `WaitDataChannelOpen()`의 시점 차이를 기록한다.
+2. ICE candidate 전달 로그를 양쪽(peer A/B)에서 비교한다.
+3. open timeout 값을 환경별(CI/로컬)로 분리해 검증한다.
+
 ## 실전 기록 규칙
 
 - 장애 하나당 티켓/문서 항목 하나를 유지한다.
