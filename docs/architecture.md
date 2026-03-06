@@ -88,6 +88,21 @@
 - `StartOffer()`
 - `Outbound()` / `Errors()`
 
+## Agent P2P 오케스트레이터 (`internal/agent/p2p_session.go`)
+
+- signaling REST/WS와 SignalBridge를 결합해 PC 세션을 관리
+- `/v1/pairings` 호출로 pairing code/session/deviceKey 발급
+- PC role WS 연결 후 bridge 런타임 시작
+- `runtime.StateManager`와 연결해 상태를 동기화
+
+오케스트레이터 흐름:
+
+1. `Start()` -> pairing 생성 -> WS 연결 -> `SIGNALING`
+2. `SIGNAL_READY` 수신 후 offer 송신 -> `P2P_CONNECTING`
+3. answer 적용 및 peer connected -> `P2P_CONNECTED`
+4. WS/bridge/peer 오류 -> `RECONNECTING`
+5. `Stop()` -> peer/ws 정리 -> `CLOSED`
+
 ## 런타임 신뢰성 레이어
 
 ### 연결 상태머신 (`internal/runtime/state_manager.go`)
@@ -113,7 +128,7 @@
 정책:
 
 - 에이전트가 전송한 제어 응답(`PROMPT_ACK`, `PATCH_READY`, `RUN_RESULT` 등)을 pending ACK로 등록
-- 모바일이 보낸 `CMD_ACK`를 수신하면 해당 pending을 즉시 제거
+- 모바일가 보낸 `CMD_ACK`를 수신하면 해당 pending을 즉시 제거
 - TTL 초과 항목을 `Expired()`로 회수
 - 만료 ACK가 발생하면 연결 상태를 `RECONNECTING`으로 전환해 복구 흐름 시작
 
@@ -123,6 +138,9 @@
 - `POST /v1/agent/runtime/state`: 상태 전환 액션 트리거
 - `GET /v1/agent/runtime/acks/pending`: 현재 pending ACK 목록 조회
 - `GET /v1/agent/runtime/acks/expired`: 만료 ACK 확인
+- `POST /v1/agent/p2p/start`: P2P 세션 시작
+- `GET /v1/agent/p2p/status`: P2P 세션 상태 조회
+- `POST /v1/agent/p2p/stop`: P2P 세션 종료
 
 ## 신뢰성 규칙
 

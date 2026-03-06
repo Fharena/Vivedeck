@@ -1,0 +1,401 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/Fharena/Vivedeck/internal/protocol"
+	"github.com/Fharena/Vivedeck/internal/runtime"
+	"github.com/Fharena/Vivedeck/internal/webrtc"
+	"github.com/gorilla/websocket"
+)
+
+type StartP2PRequest struct {
+	SignalingBaseURL string `json:"signalingBaseUrl,omitempty"`
+}
+
+type P2PSessionStatus struct {
+	Active           bool                    `json:"active"`
+	SessionID        string                  `json:"sessionId,omitempty"`
+	PairingCode      string                  `json:"pairingCode,omitempty"`
+	ExpiresAt        int64                   `json:"expiresAt,omitempty"`
+	SignalingBaseURL string                  `json:"signalingBaseUrl,omitempty"`
+	State            runtime.ConnectionState `json:"state"`
+	LastError        string                  `json:"lastError,omitempty"`
+	UpdatedAt        int64                   `json:"updatedAt"`
+}
+
+type pairingCreateResponse struct {
+	Code        string `json:"code"`
+	SessionID   string `json:"sessionId"`
+	PCDeviceKey string `json:"pcDeviceKey"`
+	ExpiresAt   int64  `json:"expiresAt"`
+}
+
+type p2pRuntime struct {
+	sessionID   string
+	pairingCode string
+	expiresAt   int64
+	wsURL       string
+
+	peer   *webrtc.Peer
+	bridge *webrtc.SignalBridge
+	wsConn *websocket.Conn
+
+	wsWriteMu sync.Mutex
+	cancel    context.CancelFunc
+}
+
+type P2PSessionManager struct {
+	stateManager *runtime.StateManager
+	httpClient   *http.Client
+
+	defaultSignalingBaseURL string
+
+	mu      sync.RWMutex
+	active  *p2pRuntime
+	status  P2PSessionStatus
+	started bool
+}
+
+func NewP2PSessionManager(stateManager *runtime.StateManager, signalingBaseURL string) *P2PSessionManager {
+	if strings.TrimSpace(signalingBaseURL) == "" {
+		signalingBaseURL = "http://127.0.0.1:8081"
+	}
+
+	return &P2PSessionManager{
+		stateManager: stateManager,
+		httpClient: &http.Client{
+			Timeout: 6 * time.Second,
+		},
+		defaultSignalingBaseURL: signalingBaseURL,
+		status: P2PSessionStatus{
+			Active:    false,
+			State:     stateManager.State(),
+			UpdatedAt: time.Now().UTC().UnixMilli(),
+		},
+	}
+}
+
+func (m *P2PSessionManager) Start(ctx context.Context, req StartP2PRequest) (P2PSessionStatus, error) {
+	m.mu.Lock()
+	if m.active != nil {
+		defer m.mu.Unlock()
+		return m.statusLocked(), errors.New("p2p session already active")
+	}
+	m.mu.Unlock()
+
+	baseURL := strings.TrimSpace(req.SignalingBaseURL)
+	if baseURL == "" {
+		baseURL = m.defaultSignalingBaseURL
+	}
+
+	pairing, err := m.createPairing(ctx, baseURL)
+	if err != nil {
+		m.setLastError(fmt.Sprintf("create pairing failed: %v", err))
+		return m.Status(), err
+	}
+
+	wsURL, err := buildSessionWSURL(baseURL, pairing.SessionID, pairing.PCDeviceKey, "pc")
+	if err != nil {
+		m.setLastError(fmt.Sprintf("build ws url failed: %v", err))
+		return m.Status(), err
+	}
+
+	wsConn, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, nil)
+	if err != nil {
+		m.setLastError(fmt.Sprintf("dial signaling ws failed: %v", err))
+		return m.Status(), err
+	}
+
+	peer, err := webrtc.NewPeer(webrtc.DefaultConfig(webrtc.SidePC))
+	if err != nil {
+		_ = wsConn.Close()
+		m.setLastError(fmt.Sprintf("new pc peer failed: %v", err))
+		return m.Status(), err
+	}
+
+	bridge, err := webrtc.NewSignalBridge(pairing.SessionID, webrtc.SidePC, peer)
+	if err != nil {
+		_ = peer.Close()
+		_ = wsConn.Close()
+		m.setLastError(fmt.Sprintf("new signal bridge failed: %v", err))
+		return m.Status(), err
+	}
+
+	sessionCtx, cancel := context.WithCancel(context.Background())
+	rt := &p2pRuntime{
+		sessionID:   pairing.SessionID,
+		pairingCode: pairing.Code,
+		expiresAt:   pairing.ExpiresAt,
+		wsURL:       wsURL,
+		peer:        peer,
+		bridge:      bridge,
+		wsConn:      wsConn,
+		cancel:      cancel,
+	}
+
+	m.mu.Lock()
+	m.active = rt
+	m.started = true
+	m.status = P2PSessionStatus{
+		Active:           true,
+		SessionID:        pairing.SessionID,
+		PairingCode:      pairing.Code,
+		ExpiresAt:        pairing.ExpiresAt,
+		SignalingBaseURL: baseURL,
+		State:            m.stateManager.State(),
+		UpdatedAt:        time.Now().UTC().UnixMilli(),
+	}
+	m.mu.Unlock()
+
+	m.stateManager.BeginSignaling()
+	m.updateStateSnapshot()
+
+	go bridge.Run(sessionCtx)
+	go m.wsReadLoop(sessionCtx, rt)
+	go m.wsWriteLoop(sessionCtx, rt)
+	go m.bridgeErrorLoop(sessionCtx, rt)
+	go m.peerStateLoop(sessionCtx, rt)
+
+	return m.Status(), nil
+}
+
+func (m *P2PSessionManager) Stop() (P2PSessionStatus, error) {
+	m.mu.Lock()
+	rt := m.active
+	if rt == nil {
+		status := m.statusLocked()
+		m.mu.Unlock()
+		return status, errors.New("p2p session is not active")
+	}
+	m.active = nil
+	m.mu.Unlock()
+
+	rt.cancel()
+
+	rt.wsWriteMu.Lock()
+	_ = rt.wsConn.Close()
+	rt.wsWriteMu.Unlock()
+
+	_ = rt.peer.Close()
+
+	m.stateManager.Close()
+	m.updateStateSnapshot()
+
+	m.mu.Lock()
+	m.status.Active = false
+	m.status.SessionID = ""
+	m.status.PairingCode = ""
+	m.status.ExpiresAt = 0
+	m.status.UpdatedAt = time.Now().UTC().UnixMilli()
+	status := m.statusLocked()
+	m.mu.Unlock()
+
+	return status, nil
+}
+
+func (m *P2PSessionManager) Status() P2PSessionStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.started {
+		m.status.State = m.stateManager.State()
+		m.status.UpdatedAt = time.Now().UTC().UnixMilli()
+	}
+
+	return m.statusLocked()
+}
+
+func (m *P2PSessionManager) statusLocked() P2PSessionStatus {
+	return m.status
+}
+
+func (m *P2PSessionManager) setLastError(message string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.status.LastError = message
+	m.status.State = m.stateManager.State()
+	m.status.UpdatedAt = time.Now().UTC().UnixMilli()
+}
+
+func (m *P2PSessionManager) updateStateSnapshot() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.status.State = m.stateManager.State()
+	m.status.UpdatedAt = time.Now().UTC().UnixMilli()
+}
+
+func (m *P2PSessionManager) createPairing(ctx context.Context, signalingBaseURL string) (pairingCreateResponse, error) {
+	u, err := buildPairingURL(signalingBaseURL)
+	if err != nil {
+		return pairingCreateResponse{}, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, nil)
+	if err != nil {
+		return pairingCreateResponse{}, fmt.Errorf("new pairing request: %w", err)
+	}
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return pairingCreateResponse{}, fmt.Errorf("pairing request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		return pairingCreateResponse{}, fmt.Errorf("pairing request unexpected status: %d", resp.StatusCode)
+	}
+
+	var out pairingCreateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return pairingCreateResponse{}, fmt.Errorf("decode pairing response: %w", err)
+	}
+
+	if out.Code == "" || out.SessionID == "" || out.PCDeviceKey == "" {
+		return pairingCreateResponse{}, errors.New("invalid pairing response")
+	}
+
+	return out, nil
+}
+
+func (m *P2PSessionManager) wsReadLoop(ctx context.Context, rt *p2pRuntime) {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		var env protocol.Envelope
+		if err := rt.wsConn.ReadJSON(&env); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			m.setLastError(fmt.Sprintf("signaling ws read failed: %v", err))
+			m.stateManager.BeginReconnect()
+			m.updateStateSnapshot()
+			return
+		}
+
+		if err := env.Validate(); err != nil {
+			continue
+		}
+
+		if err := rt.bridge.InboundEnvelope(env); err != nil {
+			m.setLastError(fmt.Sprintf("bridge inbound failed: %v", err))
+		}
+	}
+}
+
+func (m *P2PSessionManager) wsWriteLoop(ctx context.Context, rt *p2pRuntime) {
+	for {
+		select {
+		case env := <-rt.bridge.Outbound():
+			if env.Type == protocol.TypeSignalOffer {
+				m.stateManager.BeginP2P()
+				m.updateStateSnapshot()
+			}
+
+			rt.wsWriteMu.Lock()
+			err := rt.wsConn.WriteJSON(env)
+			rt.wsWriteMu.Unlock()
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				m.setLastError(fmt.Sprintf("signaling ws write failed: %v", err))
+				m.stateManager.BeginReconnect()
+				m.updateStateSnapshot()
+				return
+			}
+
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (m *P2PSessionManager) bridgeErrorLoop(ctx context.Context, rt *p2pRuntime) {
+	for {
+		select {
+		case err := <-rt.bridge.Errors():
+			if err == nil {
+				continue
+			}
+			m.setLastError(fmt.Sprintf("bridge runtime error: %v", err))
+			m.stateManager.BeginReconnect()
+			m.updateStateSnapshot()
+
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (m *P2PSessionManager) peerStateLoop(ctx context.Context, rt *p2pRuntime) {
+	for {
+		select {
+		case state := <-rt.peer.States():
+			switch state {
+			case webrtc.StateConnected:
+				m.stateManager.MarkP2PConnected()
+				m.updateStateSnapshot()
+
+			case webrtc.StateDisconnected, webrtc.StateFailed:
+				m.stateManager.BeginReconnect()
+				m.updateStateSnapshot()
+			}
+
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func buildPairingURL(signalingBaseURL string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(signalingBaseURL))
+	if err != nil {
+		return "", fmt.Errorf("parse signaling base url: %w", err)
+	}
+	if u.Scheme == "" {
+		u.Scheme = "http"
+	}
+
+	u.Path = strings.TrimRight(u.Path, "/") + "/v1/pairings"
+	u.RawQuery = ""
+	return u.String(), nil
+}
+
+func buildSessionWSURL(signalingBaseURL, sessionID, deviceKey, role string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(signalingBaseURL))
+	if err != nil {
+		return "", fmt.Errorf("parse signaling base url: %w", err)
+	}
+
+	switch u.Scheme {
+	case "http":
+		u.Scheme = "ws"
+	case "https":
+		u.Scheme = "wss"
+	case "ws", "wss":
+	default:
+		return "", fmt.Errorf("unsupported signaling base scheme: %s", u.Scheme)
+	}
+
+	u.Path = strings.TrimRight(u.Path, "/") + "/v1/sessions/" + sessionID + "/ws"
+	q := u.Query()
+	q.Set("deviceKey", deviceKey)
+	if role != "" {
+		q.Set("role", role)
+	}
+	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
