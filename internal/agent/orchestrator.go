@@ -1,0 +1,257 @@
+package agent
+
+import (
+    "context"
+    "errors"
+    "fmt"
+    "sync"
+    "sync/atomic"
+    "time"
+
+    "github.com/Fharena/Vivedeck/internal/protocol"
+)
+
+type Orchestrator struct {
+    adapter  WorkspaceAdapter
+    profiles map[string]RunProfile
+
+    mu   sync.RWMutex
+    jobs map[string]*Job
+
+    seq atomic.Int64
+}
+
+func NewOrchestrator(adapter WorkspaceAdapter, profiles map[string]RunProfile) *Orchestrator {
+    if profiles == nil {
+        profiles = DefaultRunProfiles()
+    }
+
+    return &Orchestrator{
+        adapter:  adapter,
+        profiles: profiles,
+        jobs:     make(map[string]*Job),
+    }
+}
+
+func (o *Orchestrator) HandleEnvelope(ctx context.Context, env protocol.Envelope) ([]protocol.Envelope, error) {
+    if err := env.Validate(); err != nil {
+        return o.ackFail(env, "invalid envelope: "+err.Error(), err)
+    }
+
+    switch env.Type {
+    case protocol.TypePromptSubmit:
+        return o.handlePromptSubmit(ctx, env)
+    case protocol.TypePatchApply:
+        return o.handlePatchApply(ctx, env)
+    case protocol.TypeRunProfile:
+        return o.handleRunProfile(ctx, env)
+    case protocol.TypeOpenLocation:
+        return o.handleOpenLocation(ctx, env)
+    default:
+        return o.ackFail(env, "unsupported message type", errors.New("unsupported message type"))
+    }
+}
+
+func (o *Orchestrator) handlePromptSubmit(ctx context.Context, env protocol.Envelope) ([]protocol.Envelope, error) {
+    var payload protocol.PromptSubmitPayload
+    if err := env.DecodePayload(&payload); err != nil {
+        return o.ackFail(env, "invalid prompt payload", err)
+    }
+
+    if payload.Prompt == "" {
+        return o.ackFail(env, "prompt is required", errors.New("prompt is required"))
+    }
+
+    contextData, err := o.adapter.GetContext(ctx, ContextRequest{Options: payload.ContextOptions})
+    if err != nil {
+        return o.ackFail(env, "adapter get context failed", err)
+    }
+
+    taskHandle, err := o.adapter.SubmitTask(ctx, SubmitTaskInput{
+        Prompt:   payload.Prompt,
+        Template: payload.Template,
+        Context:  contextData,
+    })
+    if err != nil {
+        return o.ackFail(env, "adapter submit task failed", err)
+    }
+
+    patch, err := o.adapter.GetPatch(ctx, taskHandle.TaskID)
+    if err != nil {
+        return o.ackFail(env, "adapter get patch failed", err)
+    }
+    if patch == nil {
+        return o.ackFail(env, "patch is not ready", errors.New("patch is nil"))
+    }
+
+    jobID := o.newID("job")
+    o.mu.Lock()
+    o.jobs[jobID] = &Job{
+        ID:        jobID,
+        TaskID:    taskHandle.TaskID,
+        Prompt:    payload.Prompt,
+        State:     "patch_ready",
+        CreatedAt: time.Now().UTC(),
+    }
+    o.mu.Unlock()
+
+    ack, _ := protocol.NewCmdAck(env.SID, o.nextSeq(), env.RID, true, "accepted")
+    promptAck, _ := protocol.NewEnvelope(env.SID, o.newID("prompt_ack"), o.nextSeq(), protocol.TypePromptAck, protocol.PromptAckPayload{
+        JobID:    jobID,
+        Accepted: true,
+        Message:  "task started",
+    })
+
+    patch.JobID = jobID
+    patchReady, _ := protocol.NewEnvelope(env.SID, o.newID("patch_ready"), o.nextSeq(), protocol.TypePatchReady, patch)
+
+    return []protocol.Envelope{ack, promptAck, patchReady}, nil
+}
+
+func (o *Orchestrator) handlePatchApply(ctx context.Context, env protocol.Envelope) ([]protocol.Envelope, error) {
+    var payload protocol.PatchApplyPayload
+    if err := env.DecodePayload(&payload); err != nil {
+        return o.ackFail(env, "invalid patch apply payload", err)
+    }
+
+    job, ok := o.getJob(payload.JobID)
+    if !ok {
+        return o.ackFail(env, "job not found", fmt.Errorf("job %s not found", payload.JobID))
+    }
+
+    result, err := o.adapter.ApplyPatch(ctx, ApplyPatchInput{
+        TaskID:   job.TaskID,
+        Mode:     payload.Mode,
+        Selected: payload.Selected,
+    })
+    if err != nil {
+        ack, _ := protocol.NewCmdAck(env.SID, o.nextSeq(), env.RID, false, err.Error())
+        patchResult, _ := protocol.NewEnvelope(env.SID, o.newID("patch_result"), o.nextSeq(), protocol.TypePatchResult, protocol.PatchResultPayload{
+            JobID:   payload.JobID,
+            Status:  "failed",
+            Message: err.Error(),
+        })
+        return []protocol.Envelope{ack, patchResult}, err
+    }
+
+    o.setJobState(payload.JobID, "applied")
+
+    ack, _ := protocol.NewCmdAck(env.SID, o.nextSeq(), env.RID, true, "patch apply queued")
+    patchResult, _ := protocol.NewEnvelope(env.SID, o.newID("patch_result"), o.nextSeq(), protocol.TypePatchResult, protocol.PatchResultPayload{
+        JobID:   payload.JobID,
+        Status:  result.Status,
+        Message: result.Message,
+    })
+
+    return []protocol.Envelope{ack, patchResult}, nil
+}
+
+func (o *Orchestrator) handleRunProfile(ctx context.Context, env protocol.Envelope) ([]protocol.Envelope, error) {
+    var payload protocol.RunProfilePayload
+    if err := env.DecodePayload(&payload); err != nil {
+        return o.ackFail(env, "invalid run profile payload", err)
+    }
+
+    job, ok := o.getJob(payload.JobID)
+    if !ok {
+        return o.ackFail(env, "job not found", fmt.Errorf("job %s not found", payload.JobID))
+    }
+
+    profile, ok := o.profiles[payload.ProfileID]
+    if !ok {
+        return o.ackFail(env, "unknown run profile", fmt.Errorf("profile %s not found", payload.ProfileID))
+    }
+
+    runHandle, err := o.adapter.RunProfile(ctx, RunProfileInput{
+        TaskID:    job.TaskID,
+        JobID:     payload.JobID,
+        ProfileID: payload.ProfileID,
+        Command:   profile.Command,
+    })
+    if err != nil {
+        return o.ackFail(env, "run profile execution failed", err)
+    }
+
+    runResult, err := o.adapter.GetRunResult(ctx, runHandle.RunID)
+    if err != nil {
+        return o.ackFail(env, "failed to fetch run result", err)
+    }
+    if runResult == nil {
+        return o.ackFail(env, "run result is empty", errors.New("run result is nil"))
+    }
+
+    o.setJobState(payload.JobID, "completed")
+
+    ack, _ := protocol.NewCmdAck(env.SID, o.nextSeq(), env.RID, true, "run started")
+    resultEnvelope, _ := protocol.NewEnvelope(env.SID, o.newID("run_result"), o.nextSeq(), protocol.TypeRunResult, protocol.RunResultPayload{
+        JobID:     payload.JobID,
+        ProfileID: runResult.ProfileID,
+        Status:    runResult.Status,
+        Summary:   runResult.Summary,
+        TopErrors: runResult.TopErrors,
+        Excerpt:   runResult.Excerpt,
+    })
+
+    return []protocol.Envelope{ack, resultEnvelope}, nil
+}
+
+func (o *Orchestrator) handleOpenLocation(ctx context.Context, env protocol.Envelope) ([]protocol.Envelope, error) {
+    var payload protocol.OpenLocationPayload
+    if err := env.DecodePayload(&payload); err != nil {
+        return o.ackFail(env, "invalid open location payload", err)
+    }
+
+    if err := o.adapter.OpenLocation(ctx, OpenLocationInput{
+        Path:   payload.Path,
+        Line:   payload.Line,
+        Column: payload.Column,
+    }); err != nil {
+        return o.ackFail(env, "open location failed", err)
+    }
+
+    ack, _ := protocol.NewCmdAck(env.SID, o.nextSeq(), env.RID, true, "location opened")
+    return []protocol.Envelope{ack}, nil
+}
+
+func (o *Orchestrator) ackFail(env protocol.Envelope, message string, err error) ([]protocol.Envelope, error) {
+    sid := env.SID
+    if sid == "" {
+        sid = "unknown"
+    }
+    rid := env.RID
+    if rid == "" {
+        rid = o.newID("rid")
+    }
+
+    ack, ackErr := protocol.NewCmdAck(sid, o.nextSeq(), rid, false, message)
+    if ackErr != nil {
+        return nil, fmt.Errorf("build ack: %w", ackErr)
+    }
+
+    return []protocol.Envelope{ack}, err
+}
+
+func (o *Orchestrator) nextSeq() int64 {
+    return o.seq.Add(1)
+}
+
+func (o *Orchestrator) newID(prefix string) string {
+    return fmt.Sprintf("%s_%d", prefix, time.Now().UTC().UnixNano())
+}
+
+func (o *Orchestrator) getJob(jobID string) (*Job, bool) {
+    o.mu.RLock()
+    defer o.mu.RUnlock()
+
+    job, ok := o.jobs[jobID]
+    return job, ok
+}
+
+func (o *Orchestrator) setJobState(jobID, state string) {
+    o.mu.Lock()
+    defer o.mu.Unlock()
+
+    if job, ok := o.jobs[jobID]; ok {
+        job.State = state
+    }
+}

@@ -1,0 +1,23 @@
+{
+  "test_last": {
+    "label": "Re-run Last Test",
+    "command": "dynamic",
+    "scope": "MEDIUM"
+  },
+  "test_all": {
+    "label": "Run All Tests",
+    "command": "npm test",
+    "scope": "MEDIUM"
+  },
+  "build": {
+    "label": "Build",
+    "command": "npm run build",
+    "scope": "MEDIUM"
+  },
+  "dev": {
+    "label": "Dev Server",
+    "command": "npm run dev",
+    "scope": "MEDIUM",
+    "optional": true
+  }
+}
