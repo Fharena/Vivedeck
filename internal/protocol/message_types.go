@@ -22,6 +22,7 @@ const (
     TypeSignalOffer  MessageType = "SIGNAL_OFFER"
     TypeSignalAnswer MessageType = "SIGNAL_ANSWER"
     TypeSignalICE    MessageType = "SIGNAL_ICE"
+    TypeSignalReady  MessageType = "SIGNAL_READY"
 
     TypeCmdAck MessageType = "CMD_ACK"
 )

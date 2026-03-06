@@ -57,6 +57,21 @@
 2. 정규식/파서 룰을 케이스별로 테스트한다.
 3. 파싱 실패 시 fallback summary 규칙을 적용한다.
 
+## 5. WebRTC 시그널링 불일치
+
+관찰 포인트:
+
+- `SIGNAL_OFFER`/`SIGNAL_ANSWER` 방향이 뒤바뀌는지
+- `sid` mismatch로 거절되는 빈도
+- 상대 미접속 구간에서 ICE 누락이 발생하는지
+
+학습 순서:
+
+1. 시그널링 로그를 `sid` 기준으로 묶는다.
+2. offer/answer/ice payload 최소 필드(sdp/candidate) 유효성을 확인한다.
+3. 큐잉된 메시지가 peer 연결 시 재전달되는지 검증한다.
+4. `SIGNAL_READY` 이벤트 이후 협상 시작 타이밍을 통일한다.
+
 ## 실전 기록 규칙
 
 - 장애 하나당 티켓/문서 항목 하나를 유지한다.

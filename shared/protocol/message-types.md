@@ -14,9 +14,10 @@
 
 ## 시그널링 경로
 
-- `SIGNAL_OFFER`
-- `SIGNAL_ANSWER`
-- `SIGNAL_ICE`
+- `SIGNAL_OFFER` (PC -> Mobile)
+- `SIGNAL_ANSWER` (Mobile -> PC)
+- `SIGNAL_ICE` (양방향)
+- `SIGNAL_READY` (서버 -> 양쪽, 시그널링 룸 준비 완료 알림)
 
 ## 터미널 경로 (best-effort)
 
