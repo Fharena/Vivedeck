@@ -103,16 +103,15 @@
 - SignalBridge(`internal/webrtc/bridge.go`)로 signaling envelope <-> peer 동작 결합
 - Flutter 화면 베이스라인(`mobile/flutter_app`)
 - Flutter 화면과 agent API 연동
+- Flutter direct 제어 경로 widget/controller integration 테스트
 
 남은 작업:
 
-- 모바일↔에이전트 direct 제어 경로 상호운용 자동화 테스트(Flutter integration)
 - 운영 메트릭/관측성(ACK RTT, queue depth) 보강
 
 ## 다음 작업 우선순위
 
-1. 모바일↔에이전트 direct 제어 경로 통합 시나리오 자동화(E2E/Integration)
-2. 운영 메트릭/관측성(ACK RTT, queue depth) 보강
+1. 운영 메트릭/관측성(ACK RTT, queue depth) 보강
 
 ## 커밋 전략
 
@@ -138,3 +137,4 @@
 18. `feat(agent): connect cursor bridge runtime over stdio`
 19. `feat(cursor-bridge): add cursor extension runtime helper`
 20. `feat(runtime): p2p control response ack retry backoff 추가`
+21. `test(mobile): add direct control integration coverage`

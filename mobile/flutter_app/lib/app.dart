@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import 'screens/prompt_screen.dart';
 import 'screens/review_screen.dart';
@@ -6,7 +6,12 @@ import 'screens/status_screen.dart';
 import 'state/app_controller.dart';
 
 class VibeDeckApp extends StatelessWidget {
-  const VibeDeckApp({super.key});
+  const VibeDeckApp({
+    super.key,
+    this.controller,
+  });
+
+  final AppController? controller;
 
   @override
   Widget build(BuildContext context) {
@@ -43,13 +48,18 @@ class VibeDeckApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const MobileShell(),
+      home: MobileShell(controller: controller),
     );
   }
 }
 
 class MobileShell extends StatefulWidget {
-  const MobileShell({super.key});
+  const MobileShell({
+    super.key,
+    this.controller,
+  });
+
+  final AppController? controller;
 
   @override
   State<MobileShell> createState() => _MobileShellState();
@@ -58,18 +68,23 @@ class MobileShell extends StatefulWidget {
 class _MobileShellState extends State<MobileShell> {
   int _index = 0;
   late final AppController _controller;
+  late final bool _ownsController;
 
   static const _titles = ['Prompt', 'Review', 'Status'];
 
   @override
   void initState() {
     super.initState();
-    _controller = AppController()..refreshStatus();
+    _controller = widget.controller ?? AppController();
+    _ownsController = widget.controller == null;
+    _controller.refreshStatus();
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    if (_ownsController) {
+      _controller.dispose();
+    }
     super.dispose();
   }
 
@@ -116,17 +131,23 @@ class _MobileShellState extends State<MobileShell> {
                                     color: Colors.white,
                                   ),
                                 )
-                              : const Icon(Icons.auto_awesome, color: Colors.white),
+                              : const Icon(Icons.auto_awesome,
+                                  color: Colors.white),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('VibeDeck Mobile', style: Theme.of(context).textTheme.titleLarge),
+                              Text('VibeDeck Mobile',
+                                  style:
+                                      Theme.of(context).textTheme.titleLarge),
                               Text(
                                 '${_titles[_index]} · ${_controller.connectionState}',
-                                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodyMedium
+                                    ?.copyWith(
                                       color: colors.primary,
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -150,9 +171,12 @@ class _MobileShellState extends State<MobileShell> {
           bottomNavigationBar: NavigationBar(
             selectedIndex: _index,
             destinations: const [
-              NavigationDestination(icon: Icon(Icons.edit_note), label: 'Prompt'),
-              NavigationDestination(icon: Icon(Icons.rule_folder), label: 'Review'),
-              NavigationDestination(icon: Icon(Icons.sync_alt), label: 'Status'),
+              NavigationDestination(
+                  icon: Icon(Icons.edit_note), label: 'Prompt'),
+              NavigationDestination(
+                  icon: Icon(Icons.rule_folder), label: 'Review'),
+              NavigationDestination(
+                  icon: Icon(Icons.sync_alt), label: 'Status'),
             ],
             onDestinationSelected: (value) {
               setState(() {

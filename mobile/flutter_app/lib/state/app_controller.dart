@@ -7,10 +7,18 @@ import '../services/agent_api.dart';
 import '../services/mobile_direct_signaling_session.dart';
 import '../services/signaling_api.dart';
 
+typedef DirectSessionFactory = MobileDirectSignalingSession Function();
+
 class AppController extends ChangeNotifier {
-  AppController({AgentApi? api}) : _api = api ?? AgentApi();
+  AppController({
+    AgentApi? api,
+    DirectSessionFactory? directSessionFactory,
+  })  : _api = api ?? AgentApi(),
+        _directSessionFactory =
+            directSessionFactory ?? MobileDirectSignalingSession.new;
 
   final AgentApi _api;
+  final DirectSessionFactory _directSessionFactory;
 
   String agentBaseUrl = 'http://127.0.0.1:8080';
   String signalingBaseUrl = 'http://127.0.0.1:8081';
@@ -110,7 +118,7 @@ class AppController extends ChangeNotifier {
     return _run('Direct signaling 연결', () async {
       await _closeDirectSignalingSession();
 
-      final session = MobileDirectSignalingSession();
+      final session = _directSessionFactory();
       _directSession = session;
       _bindDirectSession(session);
 
