@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -22,14 +23,17 @@ import (
 )
 
 type CursorAgentCLIConfig struct {
-	WorkspaceRoot   string
-	TempRoot        string
-	GitBin          string
-	CursorAgentBin  string
-	CursorAgentArgs []string
-	CursorAgentEnv  []string
-	PromptTimeout   time.Duration
-	RunTimeout      time.Duration
+	WorkspaceRoot        string
+	TempRoot             string
+	GitBin               string
+	CursorAgentBin       string
+	CursorAgentArgs      []string
+	CursorAgentEnv       []string
+	CursorAgentUseWSL    bool
+	CursorAgentWSLDistro string
+	CursorAgentWSLBinary string
+	PromptTimeout        time.Duration
+	RunTimeout           time.Duration
 }
 
 type CursorAgentCLIAdapter struct {
@@ -116,16 +120,32 @@ func DefaultCursorAgentCLIConfig() (CursorAgentCLIConfig, error) {
 	if cursorAgentBin == "" {
 		cursorAgentBin = "cursor-agent"
 	}
+	useWSL := boolEnv("CURSOR_AGENT_USE_WSL")
+	wslDistro := strings.TrimSpace(os.Getenv("CURSOR_AGENT_WSL_DISTRO"))
+	wslBinary := ""
+	if useWSL {
+		cursorAgentBin = defaultWSLExecutable(cursorAgentBin)
+		resolvedWSL, err := resolveWSLCursorAgent(cursorAgentBin, wslDistro)
+		if err != nil {
+			return CursorAgentCLIConfig{}, err
+		}
+		wslDistro = resolvedWSL.Distro
+		wslBinary = resolvedWSL.Binary
+		cursorAgentArgs = buildWSLCursorAgentArgs(wslDistro, wslBinary, cursorAgentArgs)
+	}
 
 	return CursorAgentCLIConfig{
-		WorkspaceRoot:   workspaceRoot,
-		TempRoot:        strings.TrimSpace(os.Getenv("CURSOR_AGENT_TEMP_ROOT")),
-		GitBin:          gitBin,
-		CursorAgentBin:  cursorAgentBin,
-		CursorAgentArgs: cursorAgentArgs,
-		CursorAgentEnv:  cursorAgentEnv,
-		PromptTimeout:   durationEnv("CURSOR_AGENT_PROMPT_TIMEOUT", 2*time.Minute),
-		RunTimeout:      durationEnv("CURSOR_AGENT_RUN_TIMEOUT", 2*time.Minute),
+		WorkspaceRoot:        workspaceRoot,
+		TempRoot:             strings.TrimSpace(os.Getenv("CURSOR_AGENT_TEMP_ROOT")),
+		GitBin:               gitBin,
+		CursorAgentBin:       cursorAgentBin,
+		CursorAgentArgs:      cursorAgentArgs,
+		CursorAgentEnv:       cursorAgentEnv,
+		CursorAgentUseWSL:    useWSL,
+		CursorAgentWSLDistro: wslDistro,
+		CursorAgentWSLBinary: wslBinary,
+		PromptTimeout:        durationEnv("CURSOR_AGENT_PROMPT_TIMEOUT", 2*time.Minute),
+		RunTimeout:           durationEnv("CURSOR_AGENT_RUN_TIMEOUT", 2*time.Minute),
 	}, nil
 }
 
@@ -190,6 +210,12 @@ func (a *CursorAgentCLIAdapter) RuntimeInfo() AdapterRuntimeInfo {
 	}
 	if a.resolvedGitBin != "" {
 		info.Notes = append(info.Notes, "git binary: "+a.resolvedGitBin)
+	}
+	if a.cfg.CursorAgentUseWSL {
+		info.Notes = append(info.Notes, wslCursorAgentNote(a.cfg.CursorAgentWSLDistro))
+		if a.cfg.CursorAgentWSLBinary != "" {
+			info.Notes = append(info.Notes, "wsl cursor-agent binary: "+a.cfg.CursorAgentWSLBinary)
+		}
 	}
 	return info
 }
@@ -968,4 +994,152 @@ func platformShellCommand(command string) (string, []string) {
 		return "cmd", []string{"/d", "/s", "/c", command}
 	}
 	return "sh", []string{"-lc", command}
+}
+
+func boolEnv(key string) bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func defaultWSLExecutable(current string) string {
+	if strings.TrimSpace(current) == "" || strings.EqualFold(strings.TrimSpace(current), "cursor-agent") {
+		return "wsl.exe"
+	}
+	return current
+}
+
+type resolvedWSLCursorAgent struct {
+	Distro string
+	Binary string
+}
+
+func resolveWSLCursorAgent(wslBin, requested string) (resolvedWSLCursorAgent, error) {
+	if requested != "" {
+		return resolveWSLCursorAgentInDistro(wslBin, requested)
+	}
+
+	resolved, err := resolveWSLCursorAgentInDistro(wslBin, "")
+	if err == nil {
+		return resolved, nil
+	}
+
+	distros, listErr := listWSLDistros(wslBin)
+	if listErr != nil {
+		return resolvedWSLCursorAgent{}, listErr
+	}
+	for _, distro := range distros {
+		if distro == "" {
+			continue
+		}
+		resolved, distroErr := resolveWSLCursorAgentInDistro(wslBin, distro)
+		if distroErr == nil {
+			return resolved, nil
+		}
+	}
+	return resolvedWSLCursorAgent{}, errors.New("cursor-agent was not found in any WSL distro; set CURSOR_AGENT_WSL_DISTRO")
+}
+
+func resolveWSLCursorAgentInDistro(wslBin, distro string) (resolvedWSLCursorAgent, error) {
+	homeDir, err := wslPrintenv(wslBin, distro, "HOME")
+	if err != nil {
+		return resolvedWSLCursorAgent{}, err
+	}
+	for _, candidate := range []string{
+		path.Join(homeDir, ".local", "bin", "cursor-agent"),
+		path.Join(homeDir, ".local", "bin", "agent"),
+	} {
+		if wslBinaryAvailable(wslBin, distro, candidate) {
+			return resolvedWSLCursorAgent{Distro: distro, Binary: candidate}, nil
+		}
+	}
+	if distro == "" {
+		return resolvedWSLCursorAgent{}, errors.New("cursor-agent was not found in the default WSL distro")
+	}
+	return resolvedWSLCursorAgent{}, fmt.Errorf("cursor-agent was not found in WSL distro %q", distro)
+}
+
+func wslBinaryAvailable(wslBin, distro, linuxBinary string) bool {
+	_, _, err := runCommand(
+		context.Background(),
+		"",
+		nil,
+		nil,
+		wslBin,
+		append(buildWSLBaseArgs(distro), linuxBinary, "--version")...,
+	)
+	return err == nil
+}
+
+func wslPrintenv(wslBin, distro, key string) (string, error) {
+	stdout, stderr, err := runCommand(context.Background(), "", nil, nil, wslBin, append(buildWSLBaseArgs(distro), "printenv", key)...)
+	if err != nil {
+		message := normalizeWSLOutput(strings.Join(nonEmptyStrings(stdout, stderr), "\n"))
+		if message == "" {
+			message = err.Error()
+		}
+		return "", fmt.Errorf("read WSL environment %s: %s", key, compactMessage(message))
+	}
+	value := strings.TrimSpace(normalizeWSLOutput(stdout))
+	if value == "" {
+		return "", fmt.Errorf("WSL environment %s is empty", key)
+	}
+	return value, nil
+}
+
+func listWSLDistros(wslBin string) ([]string, error) {
+	stdout, stderr, err := runCommand(context.Background(), "", nil, nil, wslBin, "-l", "-q")
+	if err != nil {
+		message := normalizeWSLOutput(strings.Join(nonEmptyStrings(stdout, stderr), "\n"))
+		if message == "" {
+			message = err.Error()
+		}
+		return nil, fmt.Errorf("list WSL distros: %s", compactMessage(message))
+	}
+
+	raw := normalizeWSLOutput(strings.Join(nonEmptyStrings(stdout, stderr), "\n"))
+	seen := make(map[string]struct{})
+	distros := make([]string, 0)
+	for _, line := range strings.Split(raw, "\n") {
+		distro := strings.TrimSpace(line)
+		if distro == "" {
+			continue
+		}
+		if _, ok := seen[distro]; ok {
+			continue
+		}
+		seen[distro] = struct{}{}
+		distros = append(distros, distro)
+	}
+	return distros, nil
+}
+
+func normalizeWSLOutput(value string) string {
+	return strings.ReplaceAll(value, "\x00", "")
+}
+
+func buildWSLBaseArgs(distro string) []string {
+	args := make([]string, 0, 3)
+	if distro != "" {
+		args = append(args, "-d", distro)
+	}
+	args = append(args, "--")
+	return args
+}
+
+func buildWSLCursorAgentArgs(distro, linuxBinary string, cursorAgentArgs []string) []string {
+	args := append(buildWSLBaseArgs(distro), linuxBinary)
+	args = append(args, cursorAgentArgs...)
+	return args
+}
+
+func wslCursorAgentNote(distro string) string {
+	if distro == "" {
+		return "cursor-agent is invoked through the default WSL distro"
+	}
+	return "cursor-agent is invoked through WSL distro: " + distro
 }

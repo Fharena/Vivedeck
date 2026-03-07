@@ -174,18 +174,33 @@
 
 ### 2026-03-08 / TOOLCHAIN-006 / 로컬 Windows 환경에 cursor-agent 바이너리 부재
 
-- 증상: `where.exe cursor-agent`와 `scripts/cursor_agent_smoke.ps1` 실행이 모두 `cursor-agent` 명령을 찾지 못해 종료됨
-- 영향: 실제 Cursor CLI 기준 smoke/E2E를 이 PC에서 즉시 수행할 수 없음
+- 증상: `where.exe cursor-agent`가 실패해 Windows PATH만 기준으로는 `cursor-agent`를 찾지 못함
+- 영향: 네이티브 경로만 가정하면 실제 Cursor CLI 기준 smoke/E2E를 이 PC에서 즉시 수행할 수 없음
 - 즉시 대응:
-  - smoke 스크립트에서 preflight check로 설치/경로 누락을 즉시 실패 처리
-  - `CURSOR_AGENT_BIN` override 경로를 지원해 PATH 미등록 환경도 수동 지정 가능하게 유지
+  - WSL distro 목록과 `~/.local/bin/cursor-agent`/`~/.local/bin/agent`를 자동 탐지하도록 agent/smoke 스크립트 보강
+  - `CURSOR_AGENT_USE_WSL=true`, `CURSOR_AGENT_WSL_DISTRO=<name>` 환경변수로 경로를 명시적으로 제어 가능하게 유지
   - `/v1/agent/runtime/adapter` endpoint로 adapter/binary 상태를 바로 확인 가능하게 함
 - 영구 대응:
-  - 팀 로컬 환경에 Cursor CLI 설치 절차를 표준화
+  - 팀 로컬 환경에 Cursor CLI 설치 절차를 네이티브/WSL 두 경로로 표준화
   - 실제 설치 환경에서 `scripts/cursor_agent_smoke.ps1` 결과를 CI 또는 운영 체크리스트에 포함
   - Windows PATH 등록 여부와 설치 위치 차이를 가이드에 명시
 - 학습 포인트:
-  - 실사용 smoke는 기능 코드만으로 끝나지 않고, 실제 실행 바이너리의 설치/경로 가시성까지 포함해야 재현 가능성이 확보됨
+  - 실사용 smoke는 기능 코드만으로 끝나지 않고, 실제 실행 바이너리의 설치 위치와 운영체제별 호출 경로까지 포함해야 재현 가능성이 확보됨
+
+### 2026-03-08 / CURSOR-CLI-002 / cursor-agent 인증 미완료로 실제 smoke 차단
+
+- 증상: WSL 안의 `cursor-agent` binary는 정상 탐지되지만 `PROMPT_SUBMIT` 시 `Authentication required. Please run 'agent login' first, or set CURSOR_API_KEY environment variable.` 오류로 종료됨
+- 영향: 실제 AI patch 생성 smoke는 코드 경로가 정상이더라도 Cursor 인증이 완료되기 전까지 진행되지 않음
+- 즉시 대응:
+  - `powershell -ExecutionPolicy Bypass -File .\scripts\cursor_agent_smoke.ps1`가 인증 미완료를 감지하면 정확한 login 명령을 안내하도록 보강
+  - 현재 환경 기준 안내 명령: `wsl.exe -d Ubuntu -- /home/fharena/.local/bin/cursor-agent login`
+  - 또는 Windows 쪽 `CURSOR_API_KEY` 환경변수를 설정한 뒤 agent/smoke를 재실행
+- 영구 대응:
+  - 팀 온보딩 문서에 Cursor CLI 인증 절차 추가
+  - CI/공용 환경에서는 secret 관리 방식(`CURSOR_API_KEY`)과 login-free 실행 정책 분리
+  - 가능하면 adapter readiness에 인증 상태 preflight를 추가
+- 학습 포인트:
+  - 외부 AI 도구의 "설치됨"과 "실행 가능함"은 다르며, 실제 운영 가능성은 인증 상태까지 포함해 확인해야 함
 
 ## 해결 방식 학습 체크리스트
 

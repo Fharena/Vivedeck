@@ -128,10 +128,11 @@
 - fake CLI helper 기반 `SubmitTask/GetPatch/ApplyPatch/RunProfile` 회귀 테스트
 - adapter 상태 endpoint(`GET /v1/agent/runtime/adapter`)
 - temp repo 기준 실제 smoke 스크립트(`scripts/cursor_agent_smoke.ps1`)
+- Windows WSL distro/binary 자동 탐지 + direct exec smoke 지원
 
 ## 다음 작업 우선순위
 
-1. 실제 `cursor-agent` 설치 환경에서 smoke 스크립트 실행 결과 수집 및 실패 케이스 보정
+1. `cursor-agent` 인증이 완료된 환경에서 smoke 스크립트를 재실행해 첫 실제 patch/apply proof 확보
 2. extension host smoke/E2E 자동화
 3. ignored/generated 파일 sync 정책과 운영 메트릭 외부 대시보드 연동
 
@@ -165,3 +166,4 @@
 24. `feat(extension): add bridge command readiness diagnostics`
 25. `feat(agent): add cursor-agent cli worktree adapter`
 26. `feat(ops): add cursor-agent smoke diagnostics`
+27. `feat(agent): support WSL cursor-agent smoke on Windows`

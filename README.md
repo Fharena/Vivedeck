@@ -100,18 +100,30 @@ $env:CURSOR_AGENT_BIN = "cursor-agent"
 go run ./cmd/agent
 ```
 
+Windows에서 네이티브 `cursor-agent`가 없고 WSL에만 설치돼 있다면 아래처럼 실행할 수 있습니다.
+
+```powershell
+$env:WORKSPACE_ADAPTER_MODE = "cursor_agent_cli"
+$env:CURSOR_AGENT_USE_WSL = "true"
+$env:CURSOR_AGENT_WSL_DISTRO = "Ubuntu" # optional, 비우면 agent가 설치된 distro를 자동 탐지
+go run ./cmd/agent
+```
+
 기본 동작:
 
-- `cursor-agent --print --output-format json`를 임시 git worktree에서 실행
+- 네이티브 `cursor-agent` 또는 WSL distro 안의 `~/.local/bin/cursor-agent`/`~/.local/bin/agent`를 탐지
+- 감지한 CLI를 임시 git worktree에서 실행
 - 현재 workspace의 tracked 변경과 untracked 파일을 temp worktree에 동기화
 - agent가 만든 diff만 `PATCH_READY`로 반환
 - review 승인 후 실제 workspace에는 `git apply`로 반영
 
 추가 환경변수:
 
-- `CURSOR_AGENT_BIN`: 기본값 `cursor-agent`
+- `CURSOR_AGENT_BIN`: 기본값 `cursor-agent`, WSL 모드에서는 기본값 `wsl.exe`
 - `CURSOR_AGENT_ARGS_JSON`: CLI 인자를 JSON 배열로 직접 지정할 때 사용, 기본값 `["--print","--output-format","json"]`
 - `CURSOR_AGENT_ENV_JSON`: CLI 실행 환경변수를 JSON 배열로 지정할 때 사용
+- `CURSOR_AGENT_USE_WSL`: Windows에서 WSL 안의 Cursor CLI를 사용할 때 `true`
+- `CURSOR_AGENT_WSL_DISTRO`: 특정 WSL distro를 강제로 지정할 때 사용, 비우면 자동 탐지
 - `CURSOR_AGENT_WORKSPACE_ROOT`: workspace root override
 - `CURSOR_AGENT_TEMP_ROOT`: 임시 worktree parent directory override
 - `CURSOR_AGENT_PROMPT_TIMEOUT`: 프롬프트 실행 타임아웃, 기본값 `2m`
@@ -119,7 +131,7 @@ go run ./cmd/agent
 
 ### Cursor Agent Smoke Script
 
-실제 `cursor-agent` 바이너리가 설치돼 있으면 아래 스크립트로 temp repo 기준 smoke 테스트를 바로 돌릴 수 있습니다.
+네이티브 `cursor-agent` 또는 WSL에 설치된 Cursor CLI가 있으면 아래 스크립트로 temp repo 기준 smoke 테스트를 바로 돌릴 수 있습니다.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\cursor_agent_smoke.ps1
@@ -133,7 +145,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\cursor_agent_smoke.ps1
 - `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE(smoke)` 순서 실행
 - 실제 변경이 temp repo 파일에 반영됐는지 확인
 
-현재 PC처럼 `cursor-agent`가 없으면 스크립트는 즉시 설치/경로 안내 메시지와 함께 종료됩니다.
+현재 스크립트는 네이티브 `cursor-agent`가 없어도 WSL 안의 `cursor-agent`/`agent`를 자동 탐지합니다. 이 PC에서 실제 smoke는 여기까지 통과했고, 현재 마지막 블로커는 Cursor 인증(`agent login` 또는 `CURSOR_API_KEY`)입니다.
 
 ### 실제 extension host 연결
 

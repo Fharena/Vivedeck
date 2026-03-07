@@ -1,7 +1,9 @@
-﻿param(
+param(
     [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
     [string]$AgentBaseUrl = "http://127.0.0.1:18080",
     [string]$CursorAgentBin = "",
+    [switch]$UseWslCursorAgent,
+    [string]$CursorAgentWslDistro = "",
     [int]$StartupTimeoutSec = 60,
     [switch]$KeepTempRoot
 )
@@ -24,6 +26,220 @@ function Resolve-RequiredCommand {
     return $command
 }
 
+function Invoke-CommandCapture {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string[]]$ArgumentList = @()
+    )
+
+    $stdoutPath = Join-Path ([System.IO.Path]::GetTempPath()) ("vibedeck-capture-" + [System.Guid]::NewGuid().ToString('N') + '.stdout.log')
+    $stderrPath = Join-Path ([System.IO.Path]::GetTempPath()) ("vibedeck-capture-" + [System.Guid]::NewGuid().ToString('N') + '.stderr.log')
+    try {
+        $process = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -Wait -NoNewWindow -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        $stdout = if (Test-Path $stdoutPath) { Get-Content -Path $stdoutPath -Raw } else { '' }
+        $stderr = if (Test-Path $stderrPath) { Get-Content -Path $stderrPath -Raw } else { '' }
+        $combined = @($stdout, $stderr) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+        return [PSCustomObject]@{
+            ExitCode = $process.ExitCode
+            Output = ($combined -join "`n").Trim()
+        }
+    } finally {
+        if (Test-Path $stdoutPath) { Remove-Item $stdoutPath -Force }
+        if (Test-Path $stderrPath) { Remove-Item $stderrPath -Force }
+    }
+}
+
+function Normalize-WslOutput {
+    param([string]$Value)
+
+    return ($Value -replace "`0", '').Trim()
+}
+
+function Get-WslArgumentList {
+    param(
+        [string]$Distro,
+        [string[]]$CommandArguments = @()
+    )
+
+    $args = @()
+    if (-not [string]::IsNullOrWhiteSpace($Distro)) {
+        $args += '-d'
+        $args += $Distro
+    }
+    $args += '--'
+    $args += $CommandArguments
+    return ,$args
+}
+
+function Invoke-WslCommandCapture {
+    param(
+        [Parameter(Mandatory = $true)][string]$WslPath,
+        [string]$Distro = '',
+        [string[]]$CommandArguments = @()
+    )
+
+    return Invoke-CommandCapture -FilePath $WslPath -ArgumentList (Get-WslArgumentList -Distro $Distro -CommandArguments $CommandArguments)
+}
+
+function Get-WslHomePath {
+    param(
+        [Parameter(Mandatory = $true)][string]$WslPath,
+        [string]$Distro = ''
+    )
+
+    $result = Invoke-WslCommandCapture -WslPath $WslPath -Distro $Distro -CommandArguments @('printenv', 'HOME')
+    $result.Output = Normalize-WslOutput $result.Output
+    if ($result.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($result.Output)) {
+        return $null
+    }
+    return $result.Output
+}
+
+function Resolve-WslCursorAgentInDistro {
+    param(
+        [Parameter(Mandatory = $true)][string]$WslPath,
+        [string]$Distro = ''
+    )
+
+    $homePath = Get-WslHomePath -WslPath $WslPath -Distro $Distro
+    if ([string]::IsNullOrWhiteSpace($homePath)) {
+        return $null
+    }
+
+    $candidates = @(
+        "$homePath/.local/bin/cursor-agent",
+        "$homePath/.local/bin/agent"
+    )
+    foreach ($candidate in $candidates) {
+        $version = Invoke-WslCommandCapture -WslPath $WslPath -Distro $Distro -CommandArguments @($candidate, '--version')
+        $version.Output = Normalize-WslOutput $version.Output
+        if ($version.ExitCode -eq 0 -and -not [string]::IsNullOrWhiteSpace($version.Output)) {
+            return [PSCustomObject]@{
+                Distro = $Distro
+                Binary = $candidate
+                Version = $version.Output
+            }
+        }
+    }
+    return $null
+}
+
+function Get-WslDistroCandidates {
+    param([Parameter(Mandatory = $true)][string]$WslPath)
+
+    $list = Invoke-CommandCapture -FilePath $WslPath -ArgumentList @('-l', '-q')
+    $list.Output = Normalize-WslOutput $list.Output
+    if ($list.ExitCode -ne 0) {
+        throw "WSL distro 목록 조회 실패: $($list.Output)"
+    }
+
+    $distros = @()
+    foreach ($line in ($list.Output -split "`n")) {
+        $name = $line.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($name) -and -not ($distros -contains $name)) {
+            $distros += $name
+        }
+    }
+    return ,$distros
+}
+
+function Resolve-WslCursorAgentDistro {
+    param(
+        [Parameter(Mandatory = $true)][string]$WslPath,
+        [string]$RequestedDistro = ''
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($RequestedDistro)) {
+        $resolved = Resolve-WslCursorAgentInDistro -WslPath $WslPath -Distro $RequestedDistro
+        if ($null -eq $resolved) {
+            throw "WSL distro '$RequestedDistro' 에서 cursor-agent를 찾지 못했습니다."
+        }
+        return $resolved
+    }
+
+    $defaultResolved = Resolve-WslCursorAgentInDistro -WslPath $WslPath
+    if ($null -ne $defaultResolved) {
+        return $defaultResolved
+    }
+
+    foreach ($distro in (Get-WslDistroCandidates -WslPath $WslPath)) {
+        $resolved = Resolve-WslCursorAgentInDistro -WslPath $WslPath -Distro $distro
+        if ($null -ne $resolved) {
+            return $resolved
+        }
+    }
+
+    throw 'WSL 어느 distro에서도 cursor-agent를 찾지 못했습니다. CURSOR_AGENT_WSL_DISTRO를 지정하세요.'
+}
+function Resolve-CursorAgentInvocation {
+    param(
+        [string]$RequestedBin,
+        [bool]$PreferWsl,
+        [string]$WslDistro
+    )
+
+    $wslRequested = $PreferWsl
+    if (-not $wslRequested -and -not [string]::IsNullOrWhiteSpace($RequestedBin)) {
+        $leaf = [System.IO.Path]::GetFileName($RequestedBin)
+        $wslRequested = $leaf -ieq 'wsl.exe' -or $leaf -ieq 'wsl'
+    }
+
+    if (-not $wslRequested -and -not [string]::IsNullOrWhiteSpace($RequestedBin)) {
+        $command = Resolve-RequiredCommand -Name $RequestedBin -Hint 'Cursor CLI 설치 후 PATH 또는 CURSOR_AGENT_BIN을 설정하세요.'
+        $version = Invoke-CommandCapture -FilePath $command.Source -ArgumentList @('--version')
+        if ($version.ExitCode -ne 0) {
+            throw "cursor-agent 버전 확인 실패: $($version.Output)"
+        }
+        return [PSCustomObject]@{
+            Binary = $command.Source
+            Version = $version.Output
+            UseWsl = $false
+            WslDistro = ''
+            NestedBinary = $command.Source
+        }
+    }
+
+    if (-not $wslRequested) {
+        $native = Get-Command 'cursor-agent' -ErrorAction SilentlyContinue
+        if ($native) {
+            $version = Invoke-CommandCapture -FilePath $native.Source -ArgumentList @('--version')
+            if ($version.ExitCode -ne 0) {
+                throw "cursor-agent 버전 확인 실패: $($version.Output)"
+            }
+            return [PSCustomObject]@{
+                Binary = $native.Source
+                Version = $version.Output
+                UseWsl = $false
+                WslDistro = ''
+                NestedBinary = $native.Source
+            }
+        }
+    }
+
+    $wsl = Resolve-RequiredCommand -Name 'wsl.exe' -Hint 'Windows에서는 WSL 또는 네이티브 cursor-agent 중 하나가 필요합니다.'
+    $resolved = Resolve-WslCursorAgentDistro -WslPath $wsl.Source -RequestedDistro $WslDistro
+
+    return [PSCustomObject]@{
+        Binary = $wsl.Source
+        Version = $resolved.Version
+        UseWsl = $true
+        WslDistro = $resolved.Distro
+        NestedBinary = $resolved.Binary
+    }
+}
+
+function Get-CursorAgentLoginHint {
+    param([Parameter(Mandatory = $true)][object]$Invocation)
+
+    if ($Invocation.UseWsl) {
+        $prefix = 'wsl.exe --'
+        if (-not [string]::IsNullOrWhiteSpace($Invocation.WslDistro)) {
+            $prefix = 'wsl.exe -d ' + $Invocation.WslDistro + ' --'
+        }
+        return $prefix + ' ' + $Invocation.NestedBinary + ' login'
+    }
+    return $Invocation.NestedBinary + ' login'
+}
 function Invoke-AgentJson {
     param(
         [Parameter(Mandatory = $true)][ValidateSet('GET','POST')][string]$Method,
@@ -89,15 +305,18 @@ $repoRootResolved = (Resolve-Path $RepoRoot).Path
 $goCommand = Resolve-RequiredCommand -Name 'go' -Hint 'Go 1.23+가 필요합니다.'
 $gitCommand = Resolve-RequiredCommand -Name 'git' -Hint 'Git이 필요합니다.'
 
-if ([string]::IsNullOrWhiteSpace($CursorAgentBin)) {
-    if (-not [string]::IsNullOrWhiteSpace($env:CURSOR_AGENT_BIN)) {
-        $CursorAgentBin = $env:CURSOR_AGENT_BIN
-    } else {
-        $CursorAgentBin = 'cursor-agent'
-    }
+if ([string]::IsNullOrWhiteSpace($CursorAgentBin) -and -not [string]::IsNullOrWhiteSpace($env:CURSOR_AGENT_BIN)) {
+    $CursorAgentBin = $env:CURSOR_AGENT_BIN
 }
-$cursorAgentCommand = Resolve-RequiredCommand -Name $CursorAgentBin -Hint 'Cursor CLI 설치 후 PATH 또는 CURSOR_AGENT_BIN을 설정하세요.'
-$cursorAgentVersion = (& $cursorAgentCommand.Source --version 2>&1 | Out-String).Trim()
+if (-not $UseWslCursorAgent.IsPresent -and -not [string]::IsNullOrWhiteSpace($env:CURSOR_AGENT_USE_WSL)) {
+    $UseWslCursorAgent = @('1','true','yes','on') -contains $env:CURSOR_AGENT_USE_WSL.Trim().ToLowerInvariant()
+}
+if ([string]::IsNullOrWhiteSpace($CursorAgentWslDistro) -and -not [string]::IsNullOrWhiteSpace($env:CURSOR_AGENT_WSL_DISTRO)) {
+    $CursorAgentWslDistro = $env:CURSOR_AGENT_WSL_DISTRO
+}
+
+$cursorAgentInvocation = Resolve-CursorAgentInvocation -RequestedBin $CursorAgentBin -PreferWsl ([bool]$UseWslCursorAgent) -WslDistro $CursorAgentWslDistro
+$cursorAgentVersion = $cursorAgentInvocation.Version
 
 $agentUri = [System.Uri]$AgentBaseUrl
 $listenAddress = if ($agentUri.IsDefaultPort) { $agentUri.Host } else { "{0}:{1}" -f $agentUri.Host, $agentUri.Port }
@@ -141,7 +360,9 @@ $scriptContent = @(
     '@echo off',
     ('set AGENT_ADDR={0}' -f $listenAddress),
     'set WORKSPACE_ADAPTER_MODE=cursor_agent_cli',
-    ('set CURSOR_AGENT_BIN={0}' -f $cursorAgentCommand.Source),
+    ('set CURSOR_AGENT_BIN={0}' -f $cursorAgentInvocation.Binary),
+    ('set CURSOR_AGENT_USE_WSL={0}' -f ($(if ($cursorAgentInvocation.UseWsl) { 'true' } else { 'false' }))),
+    ('set CURSOR_AGENT_WSL_DISTRO={0}' -f $cursorAgentInvocation.WslDistro),
     ('set CURSOR_AGENT_WORKSPACE_ROOT={0}' -f $workspaceRoot),
     ('set RUN_PROFILE_FILE={0}' -f $profilesPath),
     ('set SIGNALING_BASE_URL=http://127.0.0.1:8081'),
@@ -163,16 +384,31 @@ try {
     }
 
     $sid = 'sid-smoke'
-    $promptResponse = Invoke-AgentJson -Method POST -Uri ($AgentBaseUrl.TrimEnd('/') + '/v1/agent/envelope') -Body (New-Envelope -Sid $sid -Rid 'rid-prompt-1' -Seq 1 -Type 'PROMPT_SUBMIT' -Payload @{
-        prompt = 'Append the line "smoke-agent" to notes.txt only. Do not modify any other files.'
-        template = 'smoke'
-        contextOptions = @{
-            includeActiveFile = $false
-            includeSelection = $false
-            includeLatestError = $false
-            includeWorkspaceSummary = $true
+    try {
+        $promptResponse = Invoke-AgentJson -Method POST -Uri ($AgentBaseUrl.TrimEnd('/') + '/v1/agent/envelope') -Body (New-Envelope -Sid $sid -Rid 'rid-prompt-1' -Seq 1 -Type 'PROMPT_SUBMIT' -Payload @{
+            prompt = 'Append the line "smoke-agent" to notes.txt only. Do not modify any other files.'
+            template = 'smoke'
+            contextOptions = @{
+                includeActiveFile = $false
+                includeSelection = $false
+                includeLatestError = $false
+                includeWorkspaceSummary = $true
+            }
+        })
+    } catch {
+        $message = ''
+        if ($_.ErrorDetails -and -not [string]::IsNullOrWhiteSpace($_.ErrorDetails.Message)) {
+            $message = $_.ErrorDetails.Message
         }
-    })
+        if ([string]::IsNullOrWhiteSpace($message)) {
+            $message = $_.Exception.Message
+        }
+        if ($message -like '*Authentication required*') {
+            $loginHint = Get-CursorAgentLoginHint -Invocation $cursorAgentInvocation
+            throw "cursor-agent 인증이 필요합니다. 먼저 '$loginHint' 를 실행하거나 CURSOR_API_KEY 환경변수를 설정하세요."
+        }
+        throw
+    }
 
     $promptAck = $promptResponse.responses | Where-Object { $_.type -eq 'PROMPT_ACK' } | Select-Object -First 1
     $patchReady = $promptResponse.responses | Where-Object { $_.type -eq 'PATCH_READY' } | Select-Object -First 1
@@ -236,6 +472,17 @@ try {
         $agentProcess.WaitForExit()
     }
     if (-not $KeepTempRoot -and (Test-Path $tempRoot)) {
-        Remove-Item -Path $tempRoot -Recurse -Force
+        for ($attempt = 0; $attempt -lt 3; $attempt++) {
+            try {
+                Remove-Item -Path $tempRoot -Recurse -Force -ErrorAction Stop
+                break
+            } catch {
+                if ($attempt -eq 2) {
+                    Write-Warning "temp root cleanup skipped: $tempRoot / $($_.Exception.Message)"
+                } else {
+                    Start-Sleep -Milliseconds 250
+                }
+            }
+        }
     }
 }
