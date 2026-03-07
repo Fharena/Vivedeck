@@ -54,7 +54,7 @@ TypeScript 브리지 패키지 구성:
 - `createVSCodeCursorHost`가 VS Code/Cursor runtime과 브리지 계약을 연결
 - `createCursorExtensionRuntime`이 extension activation 시 command registration과 last-run metadata 추적을 담당
 - `serveCursorExtensionBridge`, `serveStdioBridge`, `serveSocketBridge`가 newline-delimited JSON RPC over stdio/TCP 서버를 구성
-- `extensions/vibedeck-bridge`는 mock/command mode와 설정 기반 command ID 매핑을 제공하는 설치 가능한 extension package입니다.
+- `extensions/vibedeck-bridge`는 mock/command mode, 설정 기반 command ID 매핑, command registry readiness 검증, agent env 복사 명령을 제공하는 설치 가능한 extension package입니다.
 
 ## 에이전트-브리지 연결
 

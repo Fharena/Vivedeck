@@ -1,4 +1,4 @@
-﻿# 크리티컬 이슈 및 학습 노트
+# 크리티컬 이슈 및 학습 노트
 
 개발 중 발생하는 장애/고위험 이슈를 기록합니다.
 
@@ -142,6 +142,21 @@
 - 학습 포인트:
   - 제어 경로는 처리량보다 순서/신뢰성 보장이 먼저이며, 병렬화는 명시적 순서 정책과 함께 도입해야 함
 
+### 2026-03-08 / CURSOR-EXT-001 / 공식 Cursor task command 계약 부재
+
+- 증상: extension host에 localhost bridge는 올릴 수 있지만, 저장소 안에 실제 Cursor AI task/patch/run command ID 매핑은 없음
+- 영향: `command` mode를 바로 켜도 기본 `vibedeck.*` command가 등록되지 않은 환경에서는 bridge가 시작되지 않음
+- 즉시 대응:
+  - `extensions/vibedeck-bridge`에 command readiness 검증(`vibedeckBridge.validateCommands`) 추가
+  - 필수 command 누락 시 시작을 막고, optional command는 경고만 표시
+  - `vibedeckBridge.copyAgentEnv`로 agent 연결 환경변수 복사 경로 제공
+- 영구 대응:
+  - 공식 Cursor extension API/command 계약이 확인되면 해당 command ID 또는 API 호출로 직접 매핑
+  - 공식 계약이 없으면 CLI/MCP 기반 대체 adapter 경로 설계
+  - extension host smoke/E2E 자동화로 실제 사용 가능 상태를 지속 검증
+- 학습 포인트:
+  - editor bridge는 "브리지를 띄우는 것"과 "실제 AI 작업 명령에 연결하는 것"을 분리해서 관리해야 구현 착시를 줄일 수 있음
+
 ## 해결 방식 학습 체크리스트
 
 1. 문제 재현 명령을 문서화했는가?
@@ -159,9 +174,3 @@
 - 영구 해결 방식:
 - 추가한 회귀 테스트:
 - 학습 포인트:
-
-
-
-
-
-
