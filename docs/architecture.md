@@ -72,6 +72,14 @@ TypeScript 브리지 패키지 구성:
 
 제어 메시지는 반드시 ACK를 보장하고, 터미널 스트림은 best-effort로 처리합니다.
 
+## ACK 추적 정책
+
+- `AckTracker`가 transport별 pending ACK를 추적합니다.
+- HTTP 응답은 observe-only pending ACK로 등록하고, 상태/타임아웃 관찰만 수행합니다.
+- P2P(DataChannel) 응답은 retryable pending ACK로 등록하고, 원본 envelope와 마지막 전송 시각을 함께 보존합니다.
+- `P2PSessionManager`가 backoff 간격으로 재전송을 수행하고, 최대 재시도 초과 또는 재전송 실패 시 세션 상태를 `reconnecting`으로 전이합니다.
+- 세션 종료 시 transport별 pending ACK를 정리해 stale 상태를 남기지 않습니다.
+
 ## 시그널링 레이어(WebRTC 연동)
 
 ### 메시지 방향성
@@ -97,4 +105,5 @@ TypeScript 브리지 패키지 구성:
 - `SidePC`는 offerer 역할로 data channel을 선생성
 - `SideMobile`는 offer 수신 후 answer 생성
 - `SignalBridge`가 signaling envelope과 peer 동작을 결합
-- `ControlRouter`가 HTTP/P2P 공통 제어 메시지 처리와 ACK 추적기 연동을 일원화
+- `ControlRouter`가 HTTP/P2P 공통 제어 메시지 해석과 `CMD_ACK` 소거를 담당합니다.
+- HTTP server와 `P2PSessionManager`가 transport 특성에 맞는 ACK 등록/재전송 정책을 적용합니다.

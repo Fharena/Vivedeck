@@ -55,6 +55,7 @@ type p2pRuntime struct {
 
 type P2PSessionManager struct {
 	stateManager  *runtime.StateManager
+	ackTracker    *runtime.AckTracker
 	controlRouter *ControlRouter
 	httpClient    *http.Client
 
@@ -73,6 +74,7 @@ func NewP2PSessionManager(stateManager *runtime.StateManager, ackTracker *runtim
 
 	return &P2PSessionManager{
 		stateManager:  stateManager,
+		ackTracker:    ackTracker,
 		controlRouter: NewControlRouter(orchestrator, ackTracker),
 		httpClient: &http.Client{
 			Timeout: 6 * time.Second,
@@ -167,6 +169,7 @@ func (m *P2PSessionManager) Start(ctx context.Context, req StartP2PRequest) (P2P
 	go m.bridgeErrorLoop(sessionCtx, rt)
 	go m.peerStateLoop(sessionCtx, rt)
 	go m.peerMessageLoop(sessionCtx, rt)
+	go m.ackRetryLoop(sessionCtx, rt)
 
 	return m.Status(), nil
 }
@@ -183,6 +186,10 @@ func (m *P2PSessionManager) Stop() (P2PSessionStatus, error) {
 	m.mu.Unlock()
 
 	rt.cancel()
+
+	if m.ackTracker != nil {
+		m.ackTracker.ForgetBySessionTransport(rt.sessionID, runtime.AckTransportP2P)
+	}
 
 	rt.wsWriteMu.Lock()
 	_ = rt.wsConn.Close()
@@ -400,6 +407,60 @@ func (m *P2PSessionManager) peerMessageLoop(ctx context.Context, rt *p2pRuntime)
 						return
 					}
 					m.setLastError(fmt.Sprintf("send control response failed: %v", err))
+					m.stateManager.BeginReconnect()
+					m.updateStateSnapshot()
+					return
+				}
+				registerAckableResponses(m.ackTracker, []protocol.Envelope{response}, runtime.AckTransportP2P, true)
+			}
+
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (m *P2PSessionManager) ackRetryLoop(ctx context.Context, rt *p2pRuntime) {
+	if m.ackTracker == nil {
+		return
+	}
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			batch := m.ackTracker.DueRetries()
+
+			for _, exhausted := range batch.Exhausted {
+				if exhausted.Transport != runtime.AckTransportP2P || exhausted.SID != rt.sessionID {
+					continue
+				}
+				m.setLastError(fmt.Sprintf(
+					"ack retry exhausted: rid=%s type=%s retries=%d",
+					exhausted.RID,
+					exhausted.MessageType,
+					exhausted.RetryCount,
+				))
+				m.stateManager.BeginReconnect()
+				m.updateStateSnapshot()
+			}
+
+			for _, retry := range batch.Retries {
+				if retry.Pending.Transport != runtime.AckTransportP2P || retry.Pending.SID != rt.sessionID {
+					continue
+				}
+				if err := m.sendPeerEnvelope(rt, retry.Envelope); err != nil {
+					if ctx.Err() != nil {
+						return
+					}
+					m.setLastError(fmt.Sprintf(
+						"ack retry send failed: rid=%s attempt=%d err=%v",
+						retry.Pending.RID,
+						retry.Pending.RetryCount,
+						err,
+					))
 					m.stateManager.BeginReconnect()
 					m.updateStateSnapshot()
 					return

@@ -98,6 +98,8 @@ func (s *HTTPServer) handleEnvelope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	registerAckableResponses(s.ackTracker, result.Responses, runtime.AckTransportHTTP, false)
+
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{
 			"error":     err.Error(),
@@ -163,6 +165,14 @@ func (s *HTTPServer) handleExpiredAcks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.ackTracker == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"expired": []runtime.PendingAck{},
+			"state":   s.stateManager.State(),
+		})
+		return
+	}
+
 	expired := s.ackTracker.Expired()
 	if len(expired) > 0 {
 		s.stateManager.BeginReconnect()
@@ -177,6 +187,14 @@ func (s *HTTPServer) handleExpiredAcks(w http.ResponseWriter, r *http.Request) {
 func (s *HTTPServer) handlePendingAcks(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	if s.ackTracker == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"pending": []runtime.PendingAck{},
+			"count":   0,
+		})
 		return
 	}
 

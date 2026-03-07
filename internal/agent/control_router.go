@@ -48,14 +48,5 @@ func (r *ControlRouter) HandleEnvelope(ctx context.Context, env protocol.Envelop
 	}
 
 	responses, err := r.orchestrator.HandleEnvelope(ctx, env)
-	if r.ackTracker != nil {
-		for _, response := range responses {
-			if response.Type == protocol.TypeCmdAck {
-				continue
-			}
-			r.ackTracker.Register(response.SID, response.RID, string(response.Type))
-		}
-	}
-
 	return ControlHandleResult{Responses: responses}, err
 }
