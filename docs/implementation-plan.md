@@ -1,4 +1,4 @@
-﻿# 구현 계획
+# 구현 계획
 
 이 문서는 VibeDeck MVP 구현 순서와 완료 기준을 관리합니다.
 
@@ -80,6 +80,10 @@
 완료된 산출물:
 
 - TypeScript Cursor 브리지 계약 + Mock 구현
+- Cursor Extension API 브리지 패키지 구현
+  - Cursor command host 추상화(`adapters/cursor-bridge/src/cursorHost.ts`)
+  - `CursorExtensionBridge`로 command 결과를 `WorkspaceAdapter` 계약으로 정규화
+  - `createVSCodeCursorHost`로 active editor / dirty files / open location 연결
 - 시그널링 기본 offer/answer/ice 라우팅
 - 시그널링 방향성 검증(PC: OFFER/ICE, Mobile: ANSWER/ICE)
 - 상대 미접속 시 시그널 메시지 큐잉/재전달
@@ -111,12 +115,12 @@
 
 남은 작업:
 
-- Cursor 실제 Extension API 연동
+- Go agent에서 MockAdapter 제거 + Cursor 브리지 프로세스/RPC 연결
 - 모바일↔에이전트 direct 제어 경로 상호운용 자동화 테스트(Flutter integration)
 
 ## 다음 작업 우선순위
 
-1. MockCursorBridge를 실제 Cursor Extension API로 교체
+1. Go agent에서 MockAdapter를 제거하고 Cursor 브리지 프로세스를 연결
 2. ACK 재전송/자동 복구(backoff) 정책 구현
 3. 모바일↔에이전트 direct 제어 경로 통합 시나리오 자동화(E2E/Integration)
 4. 운영 메트릭/관측성(ACK RTT, queue depth) 보강
