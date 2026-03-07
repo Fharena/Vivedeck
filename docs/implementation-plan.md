@@ -123,12 +123,15 @@
 - command mode 시작 전 registry 검증(`vibedeckBridge.validateCommands`)
 - agent 연결용 PowerShell env 복사 명령(`vibedeckBridge.copyAgentEnv`)
 - status bar / 상태 메시지에 mode, agent env, optional command 누락 경고 반영
+- `WORKSPACE_ADAPTER_MODE=cursor_agent_cli` 대체 adapter 경로
+- 공식 `cursor-agent` CLI를 임시 git worktree에서 실행해 diff만 회수하는 review-first 오케스트레이션
+- fake CLI helper 기반 `SubmitTask/GetPatch/ApplyPatch/RunProfile` 회귀 테스트
 
 ## 다음 작업 우선순위
 
-1. 실제 Cursor task/patch/run command 매핑 또는 대체 adapter 경로 설계
+1. 실제 `cursor-agent` 바이너리 기준 smoke/E2E 검증 및 패키징 가이드 보강
 2. extension host smoke/E2E 자동화
-3. 운영 메트릭 외부 대시보드 연동
+3. ignored/generated 파일 sync 정책과 운영 메트릭 외부 대시보드 연동
 
 ## 커밋 전략
 
@@ -158,3 +161,4 @@
 22. `feat(runtime): add ack observability metrics`
 23. `feat(cursor-bridge): add localhost tcp extension bridge`
 24. `feat(extension): add bridge command readiness diagnostics`
+25. `feat(agent): add cursor-agent cli worktree adapter`

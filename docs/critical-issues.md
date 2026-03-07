@@ -157,6 +157,21 @@
 - 학습 포인트:
   - editor bridge는 "브리지를 띄우는 것"과 "실제 AI 작업 명령에 연결하는 것"을 분리해서 관리해야 구현 착시를 줄일 수 있음
 
+### 2026-03-08 / CURSOR-CLI-001 / 공식 Cursor CLI 비대화형 쓰기 권한과 review-first UX 충돌
+
+- 증상: 공식 `cursor-agent` CLI는 비대화형 `--print` 모드에서도 파일을 직접 수정할 수 있어, 그대로 workspace에서 실행하면 VibeDeck의 `patch review -> apply` 흐름을 우회함
+- 영향: 사용자의 미검토 변경이 실제 workspace에 즉시 반영되고, 기존 로컬 변경과 충돌하거나 덮어쓸 리스크가 커짐
+- 즉시 대응:
+  - `WORKSPACE_ADAPTER_MODE=cursor_agent_cli` 경로에서 CLI를 실제 workspace가 아닌 임시 git worktree snapshot에서 실행
+  - 현재 workspace의 tracked diff와 untracked 파일만 temp worktree에 동기화
+  - 생성된 diff만 `PATCH_READY`로 반환하고, 승인 후 실제 workspace에는 `git apply`로 반영
+- 영구 대응:
+  - ignored/generated 파일 sync 정책 정리
+  - 실제 `cursor-agent` 바이너리 기준 smoke/E2E 자동화 추가
+  - 필요 시 worktree 대신 snapshot copy/overlay 전략과 성능 비교
+- 학습 포인트:
+  - 공식 AI 실행 경로가 있다고 해서 곧바로 제품 UX에 맞는 것은 아니며, review-first 제품은 실행 경계(workspace isolation)를 먼저 설계해야 함
+
 ## 해결 방식 학습 체크리스트
 
 1. 문제 재현 명령을 문서화했는가?

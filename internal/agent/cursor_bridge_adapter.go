@@ -86,6 +86,23 @@ func DefaultCursorBridgeTCPConfig() (CursorBridgeTCPConfig, error) {
 }
 
 func NewWorkspaceAdapterFromEnv(ctx context.Context) (WorkspaceAdapter, io.Closer, error) {
+	switch strings.TrimSpace(os.Getenv("WORKSPACE_ADAPTER_MODE")) {
+	case "", "bridge":
+	case "cursor_agent_cli":
+		cfg, err := DefaultCursorAgentCLIConfig()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		adapter, err := NewCursorAgentCLIAdapter(ctx, cfg)
+		if err != nil {
+			return nil, nil, err
+		}
+		return adapter, nil, nil
+	default:
+		return nil, nil, fmt.Errorf("unsupported WORKSPACE_ADAPTER_MODE %q", os.Getenv("WORKSPACE_ADAPTER_MODE"))
+	}
+
 	if strings.TrimSpace(os.Getenv("CURSOR_BRIDGE_TCP_ADDR")) != "" {
 		cfg, err := DefaultCursorBridgeTCPConfig()
 		if err != nil {

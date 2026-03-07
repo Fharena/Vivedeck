@@ -65,6 +65,7 @@ docs/
 - Node.js 22+
 - Flutter 3.22+
 - Cursor 또는 VS Code(실제 extension host bridge를 확인할 때)
+- Cursor CLI (cursor-agent, 실제 AI patch 생성을 확인할 때, optional)
 
 ### 빠른 실행
 
@@ -79,6 +80,7 @@ go run ./cmd/agent
 ```
 
 `cmd/agent`는 기본적으로 `adapters/cursor-bridge/dist/fixtureBridgeMain.js`를 child process로 실행합니다.
+`WORKSPACE_ADAPTER_MODE=cursor_agent_cli`를 설정하면 bridge 대신 공식 `cursor-agent` CLI를 임시 git worktree에서 실행하고, 생성된 diff만 review/apply 흐름으로 반환합니다.
 bridge 명령을 교체할 때는 다음 환경변수를 사용합니다.
 
 - `CURSOR_BRIDGE_BIN`: 기본값 `node`
@@ -87,6 +89,33 @@ bridge 명령을 교체할 때는 다음 환경변수를 사용합니다.
 - `CURSOR_BRIDGE_WORKDIR`: bridge 프로세스 working directory override
 - `CURSOR_BRIDGE_CALL_TIMEOUT`: RPC 호출 타임아웃, 기본값 `10s`
 - `CURSOR_BRIDGE_STARTUP_TIMEOUT`: bridge 초기 handshake 타임아웃, 기본값 `5s`
+
+### Cursor Agent CLI 대체 경로
+
+bridge command 매핑 대신 공식 Cursor CLI를 쓰려면 다음 환경변수를 사용합니다.
+
+```powershell
+$env:WORKSPACE_ADAPTER_MODE = "cursor_agent_cli"
+$env:CURSOR_AGENT_BIN = "cursor-agent"
+go run ./cmd/agent
+```
+
+기본 동작:
+
+- `cursor-agent --print --output-format json`를 임시 git worktree에서 실행
+- 현재 workspace의 tracked 변경과 untracked 파일을 temp worktree에 동기화
+- agent가 만든 diff만 `PATCH_READY`로 반환
+- review 승인 후 실제 workspace에는 `git apply`로 반영
+
+추가 환경변수:
+
+- `CURSOR_AGENT_BIN`: 기본값 `cursor-agent`
+- `CURSOR_AGENT_ARGS_JSON`: CLI 인자를 JSON 배열로 직접 지정할 때 사용, 기본값 `["--print","--output-format","json"]`
+- `CURSOR_AGENT_ENV_JSON`: CLI 실행 환경변수를 JSON 배열로 지정할 때 사용
+- `CURSOR_AGENT_WORKSPACE_ROOT`: workspace root override
+- `CURSOR_AGENT_TEMP_ROOT`: 임시 worktree parent directory override
+- `CURSOR_AGENT_PROMPT_TIMEOUT`: 프롬프트 실행 타임아웃, 기본값 `2m`
+- `CURSOR_AGENT_RUN_TIMEOUT`: run profile 실행 타임아웃, 기본값 `2m`
 
 ### 실제 extension host 연결
 
