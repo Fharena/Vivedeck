@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit",
+    "start:fixture": "node dist/fixtureBridgeMain.js"
   },
   "devDependencies": {
+    "@types/node": "^24.3.0",
     "typescript": "^5.9.3"
   }
 }

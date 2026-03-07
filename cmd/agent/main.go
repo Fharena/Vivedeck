@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -20,7 +21,18 @@ func main() {
 		log.Fatalf("load run profiles: %v", err)
 	}
 
-	adapter := agent.NewMockAdapter()
+	adapter, adapterCloser, err := agent.NewWorkspaceAdapterFromEnv(context.Background())
+	if err != nil {
+		log.Fatalf("create workspace adapter: %v", err)
+	}
+	if adapterCloser != nil {
+		defer func() {
+			if closeErr := adapterCloser.Close(); closeErr != nil {
+				log.Printf("close workspace adapter: %v", closeErr)
+			}
+		}()
+	}
+
 	orchestrator := agent.NewOrchestrator(adapter, profiles)
 
 	stateManager := runtime.NewStateManager(runtime.DefaultManagerConfig())

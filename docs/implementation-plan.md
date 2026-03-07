@@ -60,18 +60,19 @@
 
 상태: `완료(베이스라인)`
 
-완료된 산출물:
+산출물:
 
-- 연결 상태머신(`PAIRING`~`CLOSED`)
-- Outbound ACK 등록/만료 추적
-- Inbound `CMD_ACK` 처리 및 pending 제거
-- 런타임 상태/ACK 조회 엔드포인트
+- 연결 상태머신(`internal/runtime/state_manager.go`)
+- ACK 추적기(`internal/runtime/ack_tracker.go`)
+- HTTP/P2P 공통 envelope 라우팅(`internal/agent/control_router.go`)
+- Agent P2P 오케스트레이터(`internal/agent/p2p_session.go`)
+- 모바일 상호운용 E2E 테스트(`internal/agent/p2p_session_test.go`)
+- Flutter direct signaling + WebRTC peer 제어 경로
 
-남은 작업:
+완료 기준:
 
-- ACK 재전송 정책 구현
-- RTT 기반 timeout 튜닝
-- 통합 장애 시나리오 자동화
+- direct 경로에서 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` 기본 루프 동작
+- non-ACK 응답에 대한 `CMD_ACK` 자동 회신 및 pending ACK 소거 확인 가능
 
 ### Phase 5: 어댑터/시그널링 고도화
 
@@ -84,43 +85,29 @@
   - Cursor command host 추상화(`adapters/cursor-bridge/src/cursorHost.ts`)
   - `CursorExtensionBridge`로 command 결과를 `WorkspaceAdapter` 계약으로 정규화
   - `createVSCodeCursorHost`로 active editor / dirty files / open location 연결
+- Go agent <-> Cursor 브리지 stdio RPC 연결
+  - `CursorBridgeAdapter`로 child-process bridge 호출 추가(`internal/agent/cursor_bridge_adapter.go`)
+  - `cmd/agent` 기본 런타임을 external bridge 경로로 전환
+  - 로컬 bootstrap용 fixture bridge(`adapters/cursor-bridge/src/fixtureBridgeMain.ts`) 추가
 - 시그널링 기본 offer/answer/ice 라우팅
 - 시그널링 방향성 검증(PC: OFFER/ICE, Mobile: ANSWER/ICE)
 - 상대 미접속 시 시그널 메시지 큐잉/재전달
 - `SIGNAL_READY` 이벤트 추가
-- Pion 기반 WebRTC peer 스켈레톤(`internal/webrtc`) 추가
+- Pion 기반 WebRTC peer 스켈레톤(`internal/webrtc`)
 - SignalBridge(`internal/webrtc/bridge.go`)로 signaling envelope <-> peer 동작 결합
-- Agent P2P 오케스트레이터(`internal/agent/p2p_session.go`) 추가
-  - pairing 생성
-  - PC signaling WS 연결
-  - SignalBridge 런타임/상태머신 연동
-- ControlRouter(`internal/agent/control_router.go`) 추가
-  - HTTP/P2P 공통 envelope 처리
-  - DataChannel inbound 제어 메시지(`PROMPT_SUBMIT`, `PATCH_APPLY`, `RUN_PROFILE`)를 오케스트레이터와 연결
-  - outbound 응답(`CMD_ACK`, `PROMPT_ACK`, `PATCH_READY`, `RUN_RESULT`)의 ACK 추적기 등록 일원화
-- 모바일 상호운용 E2E 테스트 확장(`internal/agent/p2p_session_test.go`)
-  - DataChannel 기반 `PROMPT -> PATCH_APPLY -> RUN_PROFILE` 전체 루프 검증
-  - 모바일 `CMD_ACK` 수신 후 pending ACK 소거까지 검증
-- Flutter 화면 베이스라인(`mobile/flutter_app`) 추가
-  - Prompt/Review/Status 3개 탭 화면 구성
-  - 모바일 제어 루프 UI 액션 초안 배치
+- Flutter 화면 베이스라인(`mobile/flutter_app`)
 - Flutter 화면과 agent API 연동
-  - Prompt/Review/Status에서 `/v1/agent/*` 엔드포인트 호출
-  - non-ACK envelope 응답에 대한 `CMD_ACK` 자동 회신
-- Flutter direct signaling + WebRTC peer 연동
-  - `pairing claim -> signaling ws -> offer/answer/ice -> datachannel open` 흐름 구현
-  - Status 화면에서 direct 연결 상태(ws/peer/control)와 최근 로그 확인 가능
-  - Control Ready 시 Prompt/Review 제어 envelope를 DIRECT(DataChannel) 경로 우선 전송, 실패 시 HTTP 폴백
-  - Windows 공백/한글 경로 테스트 우회를 위한 `mobile/flutter_app/scripts/flutter_test_safe.ps1` 추가
 
 남은 작업:
 
-- Go agent에서 MockAdapter 제거 + Cursor 브리지 프로세스/RPC 연결
+- Cursor extension 프로세스에서 `createVSCodeCursorHost` 기반 런처 추가
+- ACK 재전송/자동 복구(backoff) 정책 구현
 - 모바일↔에이전트 direct 제어 경로 상호운용 자동화 테스트(Flutter integration)
+- 운영 메트릭/관측성(ACK RTT, queue depth) 보강
 
 ## 다음 작업 우선순위
 
-1. Go agent에서 MockAdapter를 제거하고 Cursor 브리지 프로세스를 연결
+1. Cursor extension 프로세스에서 `createVSCodeCursorHost` 기반 런처 추가
 2. ACK 재전송/자동 복구(backoff) 정책 구현
 3. 모바일↔에이전트 direct 제어 경로 통합 시나리오 자동화(E2E/Integration)
 4. 운영 메트릭/관측성(ACK RTT, queue depth) 보강
@@ -145,3 +132,5 @@
 14. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`
 15. `feat(mobile): direct signaling skeleton + status ui`
 16. `feat(mobile): flutter webrtc peer + direct control path integration`
+17. `feat(cursor-bridge): add cursor extension host bridge`
+18. `feat(agent): connect cursor bridge runtime over stdio`
