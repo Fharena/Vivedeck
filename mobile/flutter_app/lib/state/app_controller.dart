@@ -1,8 +1,11 @@
-﻿import 'dart:collection';
+import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
 import '../services/agent_api.dart';
+import '../services/mobile_direct_signaling_session.dart';
+import '../services/signaling_api.dart';
 
 class AppController extends ChangeNotifier {
   AppController({AgentApi? api}) : _api = api ?? AgentApi();
@@ -35,8 +38,24 @@ class AppController extends ChangeNotifier {
   String runSummary = '';
   final List<String> topErrors = [];
 
-  UnmodifiableListView<PatchFileView> get patchFiles => UnmodifiableListView(_patchFiles);
+  UnmodifiableListView<PatchFileView> get patchFiles =>
+      UnmodifiableListView(_patchFiles);
   final List<PatchFileView> _patchFiles = [];
+
+  String directPairingCode = '';
+  String directSignalingState = 'IDLE';
+  bool directSignalingConnected = false;
+  String directSessionId = '';
+  String directDeviceKey = '';
+  UnmodifiableListView<String> get directSignalLogs =>
+      UnmodifiableListView(_directSignalLogs);
+  final List<String> _directSignalLogs = [];
+
+  MobileDirectSignalingSession? _directSession;
+  StreamSubscription<DirectSignalingState>? _directStateSub;
+  StreamSubscription<DirectSignalEvent>? _directEventSub;
+  StreamSubscription<Map<String, dynamic>>? _directEnvelopeSub;
+  StreamSubscription<String>? _directErrorSub;
 
   int _seq = 1;
 
@@ -47,6 +66,11 @@ class AppController extends ChangeNotifier {
 
   void updateSignalingBaseUrl(String value) {
     signalingBaseUrl = value.trim();
+    notifyListeners();
+  }
+
+  void updateDirectPairingCode(String value) {
+    directPairingCode = value.trim();
     notifyListeners();
   }
 
@@ -68,6 +92,45 @@ class AppController extends ChangeNotifier {
     return _run('P2P 종료', () async {
       await _api.p2pStop(agentBaseUrl);
       await _refreshStatusRaw();
+    });
+  }
+
+  Future<void> connectDirectSignaling() {
+    final code = _resolveDirectPairingCode();
+    if (code.isEmpty) {
+      errorMessage = 'pairing code를 입력하거나 P2P 시작 후 발급 코드를 사용하세요.';
+      notifyListeners();
+      return Future.value();
+    }
+
+    return _run('Direct signaling 연결', () async {
+      await _closeDirectSignalingSession();
+
+      final session = MobileDirectSignalingSession();
+      _directSession = session;
+      _bindDirectSession(session);
+
+      directPairingCode = code;
+      _appendDirectLog('direct connect 시작 (code=$code)');
+
+      await session.connect(
+        signalingBaseUrl: signalingBaseUrl,
+        pairingCode: code,
+      );
+
+      directSignalingConnected = session.isConnected;
+      directSessionId = session.sessionId;
+      directDeviceKey = session.mobileDeviceKey;
+      notifyListeners();
+    });
+  }
+
+  Future<void> disconnectDirectSignaling() {
+    return _run('Direct signaling 종료', () async {
+      await _closeDirectSignalingSession();
+      directSignalingConnected = false;
+      directSignalingState = 'CLOSED';
+      notifyListeners();
     });
   }
 
@@ -172,6 +235,10 @@ class AppController extends ChangeNotifier {
     p2pActive = p2p['active'] == true;
     sessionId = p2p['sessionId']?.toString() ?? '';
     pairingCode = p2p['pairingCode']?.toString() ?? '';
+
+    if (directPairingCode.isEmpty && pairingCode.isNotEmpty) {
+      directPairingCode = pairingCode;
+    }
 
     final runtime = await _api.runtimeState(agentBaseUrl);
     connectionState = runtime['state']?.toString() ?? connectionState;
@@ -285,31 +352,28 @@ class AppController extends ChangeNotifier {
       return const [];
     }
 
-    return raw
-        .whereType<Map>()
-        .map((file) {
-          final hunksRaw = file['hunks'];
-          final hunks = <PatchHunkView>[];
-          if (hunksRaw is List) {
-            for (final hunk in hunksRaw.whereType<Map>()) {
-              hunks.add(
-                PatchHunkView(
-                  id: hunk['hunkId']?.toString() ?? '',
-                  header: hunk['header']?.toString() ?? '',
-                  diff: hunk['diff']?.toString() ?? '',
-                  risk: hunk['risk']?.toString() ?? '',
-                ),
-              );
-            }
-          }
-
-          return PatchFileView(
-            path: file['path']?.toString() ?? '',
-            status: file['status']?.toString() ?? '',
-            hunks: hunks,
+    return raw.whereType<Map>().map((file) {
+      final hunksRaw = file['hunks'];
+      final hunks = <PatchHunkView>[];
+      if (hunksRaw is List) {
+        for (final hunk in hunksRaw.whereType<Map>()) {
+          hunks.add(
+            PatchHunkView(
+              id: hunk['hunkId']?.toString() ?? '',
+              header: hunk['header']?.toString() ?? '',
+              diff: hunk['diff']?.toString() ?? '',
+              risk: hunk['risk']?.toString() ?? '',
+            ),
           );
-        })
-        .toList();
+        }
+      }
+
+      return PatchFileView(
+        path: file['path']?.toString() ?? '',
+        status: file['status']?.toString() ?? '',
+        hunks: hunks,
+      );
+    }).toList();
   }
 
   List<String> _parseTopErrors(dynamic raw) {
@@ -317,18 +381,15 @@ class AppController extends ChangeNotifier {
       return const [];
     }
 
-    return raw
-        .whereType<Map>()
-        .map((item) {
-          final message = item['message']?.toString() ?? '';
-          final path = item['path']?.toString() ?? '';
-          final line = _toInt(item['line']);
-          if (path.isEmpty) {
-            return message;
-          }
-          return '$path:$line $message';
-        })
-        .toList();
+    return raw.whereType<Map>().map((item) {
+      final message = item['message']?.toString() ?? '';
+      final path = item['path']?.toString() ?? '';
+      final line = _toInt(item['line']);
+      if (path.isEmpty) {
+        return message;
+      }
+      return '$path:$line $message';
+    }).toList();
   }
 
   Map<String, dynamic> _buildEnvelope({
@@ -377,6 +438,8 @@ class AppController extends ChangeNotifier {
       await action();
     } on AgentApiException catch (e) {
       errorMessage = '[${e.statusCode}] ${e.message}';
+    } on SignalingApiException catch (e) {
+      errorMessage = '[${e.statusCode}] ${e.message}';
     } catch (e) {
       errorMessage = e.toString();
     } finally {
@@ -386,8 +449,85 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  void _bindDirectSession(MobileDirectSignalingSession session) {
+    _directStateSub = session.states.listen((state) {
+      directSignalingState = state.name.toUpperCase();
+      directSignalingConnected = session.isConnected;
+      notifyListeners();
+    });
+
+    _directEventSub = session.events.listen((event) {
+      _appendDirectLog(event.label);
+      notifyListeners();
+    });
+
+    _directEnvelopeSub = session.envelopes.listen((envelope) {
+      _handleDirectEnvelope(envelope);
+      notifyListeners();
+    });
+
+    _directErrorSub = session.errors.listen((message) {
+      _appendDirectLog('ERROR: $message');
+      errorMessage = message;
+      notifyListeners();
+    });
+  }
+
+  Future<void> _closeDirectSignalingSession() async {
+    await _directStateSub?.cancel();
+    await _directEventSub?.cancel();
+    await _directEnvelopeSub?.cancel();
+    await _directErrorSub?.cancel();
+    _directStateSub = null;
+    _directEventSub = null;
+    _directEnvelopeSub = null;
+    _directErrorSub = null;
+
+    final session = _directSession;
+    _directSession = null;
+    if (session != null) {
+      await session.close();
+      session.dispose();
+    }
+
+    directSignalingConnected = false;
+    directSessionId = '';
+    directDeviceKey = '';
+  }
+
+  void _handleDirectEnvelope(Map<String, dynamic> envelope) {
+    final typ = envelope['type']?.toString() ?? 'UNKNOWN';
+    final sid = envelope['sid']?.toString() ?? '';
+    _appendDirectLog('ENVELOPE: $typ sid=$sid');
+
+    if (typ == 'SIGNAL_OFFER') {
+      _appendDirectLog('모바일 WebRTC peer 미연동: SIGNAL_OFFER 수신(스켈레톤 단계)');
+    }
+    if (typ == 'SIGNAL_ICE') {
+      _appendDirectLog('모바일 WebRTC peer 미연동: SIGNAL_ICE 수신(스켈레톤 단계)');
+    }
+  }
+
+  void _appendDirectLog(String log) {
+    _directSignalLogs.insert(0, log);
+    if (_directSignalLogs.length > 40) {
+      _directSignalLogs.removeRange(40, _directSignalLogs.length);
+    }
+  }
+
+  String _resolveDirectPairingCode() {
+    if (directPairingCode.trim().isNotEmpty) {
+      return directPairingCode.trim();
+    }
+    if (pairingCode.trim().isNotEmpty) {
+      return pairingCode.trim();
+    }
+    return '';
+  }
+
   @override
   void dispose() {
+    unawaited(_closeDirectSignalingSession());
     _api.dispose();
     super.dispose();
   }
