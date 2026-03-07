@@ -33,6 +33,7 @@ class AppController extends ChangeNotifier {
   String connectionState = 'PAIRING';
 
   int pendingAckCount = 0;
+  AckMetricsView ackMetrics = const AckMetricsView();
   UnmodifiableListView<RuntimeTransitionView> get runtimeHistory =>
       UnmodifiableListView(_runtimeHistory);
   final List<RuntimeTransitionView> _runtimeHistory = [];
@@ -262,8 +263,9 @@ class AppController extends ChangeNotifier {
       ..clear()
       ..addAll(_parseHistory(runtime['history']));
 
-    final pending = await _api.pendingAcks(agentBaseUrl);
-    pendingAckCount = _toInt(pending['count']);
+    final metrics = await _api.runtimeMetrics(agentBaseUrl);
+    ackMetrics = _parseAckMetrics(metrics['ack']);
+    pendingAckCount = ackMetrics.pendingCount;
   }
 
   Future<List<Map<String, dynamic>>> _sendEnvelopeAndAck(
@@ -398,6 +400,33 @@ class AppController extends ChangeNotifier {
           ..addAll(_parseTopErrors(map['topErrors']));
       }
     }
+  }
+
+  AckMetricsView _parseAckMetrics(dynamic raw) {
+    if (raw is! Map) {
+      return const AckMetricsView();
+    }
+
+    final metrics = Map<String, dynamic>.from(raw);
+    final pendingByTransportRaw = metrics['pendingByTransport'];
+    final pendingByTransport = pendingByTransportRaw is Map
+        ? Map<String, dynamic>.from(pendingByTransportRaw)
+        : const <String, dynamic>{};
+
+    return AckMetricsView(
+      pendingCount: _toInt(metrics['pendingCount']),
+      maxPendingCount: _toInt(metrics['maxPendingCount']),
+      ackedCount: _toInt(metrics['ackedCount']),
+      retryDispatchCount: _toInt(metrics['retryDispatchCount']),
+      expiredCount: _toInt(metrics['expiredCount']),
+      exhaustedCount: _toInt(metrics['exhaustedCount']),
+      lastAckRttMs: _toInt(metrics['lastAckRttMs']),
+      avgAckRttMs: _toInt(metrics['avgAckRttMs']),
+      maxAckRttMs: _toInt(metrics['maxAckRttMs']),
+      pendingHttpCount: _toInt(pendingByTransport['http']),
+      pendingP2PCount: _toInt(pendingByTransport['p2p']),
+      pendingUnknownCount: _toInt(pendingByTransport['unknown']),
+    );
   }
 
   List<RuntimeTransitionView> _parseHistory(dynamic raw) {
@@ -613,6 +642,40 @@ class AppController extends ChangeNotifier {
     unawaited(_closeDirectSignalingSession());
     _api.dispose();
     super.dispose();
+  }
+}
+
+class AckMetricsView {
+  const AckMetricsView({
+    this.pendingCount = 0,
+    this.maxPendingCount = 0,
+    this.ackedCount = 0,
+    this.retryDispatchCount = 0,
+    this.expiredCount = 0,
+    this.exhaustedCount = 0,
+    this.lastAckRttMs = 0,
+    this.avgAckRttMs = 0,
+    this.maxAckRttMs = 0,
+    this.pendingHttpCount = 0,
+    this.pendingP2PCount = 0,
+    this.pendingUnknownCount = 0,
+  });
+
+  final int pendingCount;
+  final int maxPendingCount;
+  final int ackedCount;
+  final int retryDispatchCount;
+  final int expiredCount;
+  final int exhaustedCount;
+  final int lastAckRttMs;
+  final int avgAckRttMs;
+  final int maxAckRttMs;
+  final int pendingHttpCount;
+  final int pendingP2PCount;
+  final int pendingUnknownCount;
+
+  String get pendingSplitLabel {
+    return 'http=$pendingHttpCount / p2p=$pendingP2PCount / unknown=$pendingUnknownCount';
   }
 }
 

@@ -56,6 +56,45 @@ func TestHTTPServerRuntimeState(t *testing.T) {
 	}
 }
 
+func TestHTTPServerRuntimeMetrics(t *testing.T) {
+	server, tracker := newTestHTTPServer()
+
+	env, err := protocol.NewEnvelope("sid-1", "rid-metrics", 1, protocol.TypePromptAck, map[string]any{
+		"jobId": "job_1",
+	})
+	if err != nil {
+		t.Fatalf("build metrics envelope: %v", err)
+	}
+	tracker.RegisterEnvelope(env, runtime.AckTransportHTTP, false)
+	tracker.Ack(env.RID)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/agent/runtime/metrics", nil)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var body struct {
+		State runtime.ConnectionState `json:"state"`
+		Ack   runtime.AckMetrics      `json:"ack"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode runtime metrics: %v", err)
+	}
+
+	if body.Ack.AckedCount != 1 {
+		t.Fatalf("expected acked count 1, got %d", body.Ack.AckedCount)
+	}
+	if body.Ack.PendingCount != 0 {
+		t.Fatalf("expected pending count 0, got %d", body.Ack.PendingCount)
+	}
+	if body.Ack.PendingByTransport[string(runtime.AckTransportHTTP)] != 0 {
+		t.Fatalf("expected http pending 0")
+	}
+}
+
 func TestHTTPServerInboundCmdAckClearsPending(t *testing.T) {
 	server, tracker := newTestHTTPServer()
 

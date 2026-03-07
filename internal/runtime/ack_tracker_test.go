@@ -145,3 +145,98 @@ func TestAckTrackerExpiredSkipsRetryableBeforeExhaustion(t *testing.T) {
 		t.Fatalf("pending retryable ack should remain tracked")
 	}
 }
+
+func TestAckTrackerMetrics(t *testing.T) {
+	base := time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC)
+	tracker := NewAckTrackerWithConfig(AckTrackerConfig{
+		Timeout:           10 * time.Millisecond,
+		MaxRetries:        1,
+		BackoffMultiplier: 2,
+	})
+	tracker.now = func() time.Time { return base }
+
+	httpEnv, err := protocol.NewEnvelope("sid1", "rid-http", 1, protocol.TypePromptAck, map[string]any{
+		"jobId": "job_1",
+	})
+	if err != nil {
+		t.Fatalf("build http envelope: %v", err)
+	}
+	tracker.RegisterEnvelope(httpEnv, AckTransportHTTP, false)
+
+	p2pEnv, err := protocol.NewEnvelope("sid1", "rid-p2p", 2, protocol.TypePatchReady, map[string]any{
+		"jobId":   "job_1",
+		"summary": "mock patch",
+		"files":   []any{},
+	})
+	if err != nil {
+		t.Fatalf("build p2p envelope: %v", err)
+	}
+	tracker.RegisterEnvelope(p2pEnv, AckTransportP2P, true)
+
+	base = base.Add(4 * time.Millisecond)
+	tracker.Ack("rid-http")
+
+	base = base.Add(6 * time.Millisecond)
+	retryBatch := tracker.DueRetries()
+	if len(retryBatch.Retries) != 1 {
+		t.Fatalf("expected one retry batch item, got %d", len(retryBatch.Retries))
+	}
+
+	tracker.Register("sid1", "rid-unknown", "PATCH_RESULT")
+
+	base = base.Add(11 * time.Millisecond)
+	expired := tracker.Expired()
+	if len(expired) != 1 {
+		t.Fatalf("expected one expired item, got %d", len(expired))
+	}
+	if expired[0].RID != "rid-unknown" {
+		t.Fatalf("unexpected expired rid: %s", expired[0].RID)
+	}
+
+	base = base.Add(20 * time.Millisecond)
+	exhausted := tracker.DueRetries()
+	if len(exhausted.Exhausted) != 1 {
+		t.Fatalf("expected one exhausted item, got %d", len(exhausted.Exhausted))
+	}
+	if exhausted.Exhausted[0].RID != "rid-p2p" {
+		t.Fatalf("unexpected exhausted rid: %s", exhausted.Exhausted[0].RID)
+	}
+
+	metrics := tracker.Metrics()
+	if metrics.PendingCount != 0 {
+		t.Fatalf("expected pending count 0, got %d", metrics.PendingCount)
+	}
+	if metrics.MaxPendingCount != 2 {
+		t.Fatalf("expected max pending count 2, got %d", metrics.MaxPendingCount)
+	}
+	if metrics.AckedCount != 1 {
+		t.Fatalf("expected acked count 1, got %d", metrics.AckedCount)
+	}
+	if metrics.RetryDispatchCount != 1 {
+		t.Fatalf("expected retry dispatch count 1, got %d", metrics.RetryDispatchCount)
+	}
+	if metrics.ExpiredCount != 1 {
+		t.Fatalf("expected expired count 1, got %d", metrics.ExpiredCount)
+	}
+	if metrics.ExhaustedCount != 1 {
+		t.Fatalf("expected exhausted count 1, got %d", metrics.ExhaustedCount)
+	}
+	if metrics.LastAckRTTMs != 4 {
+		t.Fatalf("expected last ack RTT 4ms, got %d", metrics.LastAckRTTMs)
+	}
+	if metrics.AvgAckRTTMs != 4 {
+		t.Fatalf("expected avg ack RTT 4ms, got %d", metrics.AvgAckRTTMs)
+	}
+	if metrics.MaxAckRTTMs != 4 {
+		t.Fatalf("expected max ack RTT 4ms, got %d", metrics.MaxAckRTTMs)
+	}
+	if metrics.PendingByTransport[string(AckTransportHTTP)] != 0 {
+		t.Fatalf("expected http pending 0")
+	}
+	if metrics.PendingByTransport[string(AckTransportP2P)] != 0 {
+		t.Fatalf("expected p2p pending 0")
+	}
+	if metrics.PendingByTransport[string(AckTransportUnknown)] != 0 {
+		t.Fatalf("expected unknown pending 0")
+	}
+}

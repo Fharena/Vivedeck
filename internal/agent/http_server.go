@@ -32,6 +32,7 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("/healthz", s.handleHealth)
 	mux.HandleFunc("/v1/agent/envelope", s.handleEnvelope)
 	mux.HandleFunc("/v1/agent/runtime/state", s.handleRuntimeState)
+	mux.HandleFunc("/v1/agent/runtime/metrics", s.handleRuntimeMetrics)
 	mux.HandleFunc("/v1/agent/runtime/acks/expired", s.handleExpiredAcks)
 	mux.HandleFunc("/v1/agent/runtime/acks/pending", s.handlePendingAcks)
 	mux.HandleFunc("/v1/agent/p2p/start", s.handleP2PStart)
@@ -157,6 +158,28 @@ func (s *HTTPServer) handleRuntimeState(w http.ResponseWriter, r *http.Request) 
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
+}
+
+func (s *HTTPServer) handleRuntimeMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	state := runtime.StatePairing
+	if s.stateManager != nil {
+		state = s.stateManager.State()
+	}
+
+	metrics := runtime.EmptyAckMetrics()
+	if s.ackTracker != nil {
+		metrics = s.ackTracker.Metrics()
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"state": state,
+		"ack":   metrics,
+	})
 }
 
 func (s *HTTPServer) handleExpiredAcks(w http.ResponseWriter, r *http.Request) {
