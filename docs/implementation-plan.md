@@ -100,19 +100,21 @@
 - Flutter 화면 베이스라인(`mobile/flutter_app`) 추가
   - Prompt/Review/Status 3개 탭 화면 구성
   - 모바일 제어 루프 UI 액션 초안 배치
+- Flutter 화면과 agent API 연동
+  - Prompt/Review/Status에서 `/v1/agent/*` 엔드포인트 호출
+  - non-ACK envelope 응답에 대한 `CMD_ACK` 자동 회신
 
 남은 작업:
 
 - Cursor 실제 Extension API 연동
-- 모바일(WebRTC 클라이언트) 실제 구현(Flutter) 및 상호운용 테스트 자동화
-- Flutter 화면과 agent runtime/p2p API 실제 연결
+- 모바일(WebRTC 클라이언트) 실제 구현(Flutter, WebRTC direct) 및 상호운용 테스트 자동화
 
 ## 다음 작업 우선순위
 
-1. 모바일(WebRTC 클라이언트) 실제 구현 및 서버/에이전트 연결
-2. Flutter 화면과 agent runtime/p2p API 연동
-3. MockCursorBridge를 실제 Cursor Extension API로 교체
-4. ACK 재전송/자동 복구(backoff) 정책 구현
+1. 모바일(WebRTC 클라이언트) 실제 구현(Flutter WebRTC direct)
+2. MockCursorBridge를 실제 Cursor Extension API로 교체
+3. ACK 재전송/자동 복구(backoff) 정책 구현
+4. 모바일↔에이전트 통합 시나리오 자동화(E2E)
 
 ## 커밋 전략
 
@@ -130,6 +132,8 @@
 10. `feat(agent): p2p envelope routing 통합`
 11. `test(agent): mobile control flow interop e2e 추가`
 12. `feat(mobile): flutter prompt/review/status baseline`
-13. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`
+13. `feat(mobile): flutter screen + agent api integration`
+14. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`
+
 
 

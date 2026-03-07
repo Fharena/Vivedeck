@@ -100,26 +100,43 @@
 3. offer 중복 생성 방지 플래그(`offerStarted`) 동작을 검증한다.
 4. signaling 서버 ACK와 bridge 내부 에러를 분리해 원인 범위를 좁힌다.
 
-## 8. Flutter Toolchain 미설치/불일치
+## 8. Flutter Toolchain 경로 불일치
 
 관찰 포인트:
 
-- `flutter` 명령 인식 여부
+- 전역 `flutter` 명령 인식 여부와 로컬 SDK 경로(`tools/flutter/bin/flutter.bat`) 사용 여부
 - `flutter pub get`에서 SDK 버전 제약 충돌 여부
 - 로컬 실행(`flutter run`)과 CI(`flutter test`) 결과 차이
 
 학습 순서:
 
-1. `flutter --version`으로 PATH/SDK 정상 여부를 확인한다.
+1. `flutter --version` 또는 `tools/flutter/bin/flutter.bat --version`으로 SDK 경로를 확인한다.
 2. `dart --version`과 `pubspec.yaml`의 SDK 범위가 일치하는지 검증한다.
 3. 최소 smoke test(`flutter pub get`, `flutter test`)를 자동화한다.
 4. 도구체인 이슈가 해결되기 전에는 UI 계약/상태 모델과 네트워크 연동 코드를 분리한다.
+
+## 9. Flutter native assets 훅 경로 충돌
+
+관찰 포인트:
+
+- `flutter test`에서 특정 플러그인 훅(`objective_c` 등) 컴파일 단계 실패 여부
+- 오류 메시지에 경로 일부(`C:\Users\...\바탕`) 잘림/분리 실행 징후가 있는지
+- 동일 코드가 경로가 단순한 환경에서는 통과하는지
+
+학습 순서:
+
+1. 실패 로그에서 훅 패키지와 호출된 명령줄을 먼저 식별한다.
+2. transitive dependency 트리(`flutter pub deps`)에서 native assets 유입 경로를 확인한다.
+3. 기능 영향이 낮은 의존성부터 제거/대체해 재현 여부를 비교한다.
+4. 재현 가능한 최소 케이스를 CI에 넣어 경로/로케일 회귀를 막는다.
 
 ## 실전 기록 규칙
 
 - 장애 하나당 티켓/문서 항목 하나를 유지한다.
 - "증상 -> 재현 -> 원인 -> 해결 -> 회귀 테스트" 순서로 기록한다.
 - 같은 장애가 2회 이상 반복되면 자동화된 검증을 추가한다.
+
+
 
 
 

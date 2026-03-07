@@ -1,29 +1,50 @@
 ﻿# VibeDeck Mobile (Flutter)
 
-Prompt/Review/Status 3개 화면 베이스라인을 제공하는 모바일 앱 스캐폴드입니다.
+Prompt/Review/Status 3개 화면을 agent HTTP API에 연결한 모바일 앱입니다.
 
 ## 포함 화면
 
-- `Prompt`: 프롬프트 입력, 템플릿 선택, context 옵션 토글
-- `Review`: 파일/헝크 단위 패치 검토 및 전체/선택 적용 액션
-- `Status`: 연결 상태, pending ACK, 상태 히스토리 확인
+- `Prompt`: `PROMPT_SUBMIT` 전송
+- `Review`: `PATCH_APPLY`, `RUN_PROFILE` 전송
+- `Status`: P2P 시작/종료, runtime 상태/ACK 조회
+
+## 주요 연동 API
+
+- `POST /v1/agent/p2p/start`
+- `GET /v1/agent/p2p/status`
+- `POST /v1/agent/p2p/stop`
+- `GET /v1/agent/runtime/state`
+- `GET /v1/agent/runtime/acks/pending`
+- `POST /v1/agent/envelope`
+
+화면에서 제어 응답을 받으면 non-ACK 응답에 대해 `CMD_ACK`를 자동 회신합니다.
 
 ## 실행 전 준비
 
-Flutter SDK가 PATH에 있어야 합니다.
-
 ```bash
+# 시스템 전역 또는 로컬 SDK 경로 중 하나 사용
 flutter --version
+.\tools\flutter\bin\flutter.bat --version
 ```
 
 ## 로컬 실행
 
 ```bash
 cd mobile/flutter_app
-flutter pub get
-flutter run
+..\..\tools\flutter\bin\flutter.bat pub get
+..\..\tools\flutter\bin\flutter.bat run
 ```
 
-## 메모
+## 테스트/분석
 
-현재는 UI 베이스라인 단계이며, 실제 signaling/p2p/runtime API 연동은 다음 단계에서 추가합니다.
+```bash
+..\..\tools\flutter\bin\flutter.bat analyze
+..\..\tools\flutter\bin\flutter.bat test
+```
+
+## 기본 연결 값
+
+- Agent Base URL: `http://127.0.0.1:8080`
+- Signaling Base URL: `http://127.0.0.1:8081`
+
+에뮬레이터 환경에서는 `10.0.2.2` 등 환경별 호스트를 사용하세요.
