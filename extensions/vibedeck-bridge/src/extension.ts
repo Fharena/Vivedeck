@@ -96,6 +96,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
   );
   context.subscriptions.push(
+    vscode.commands.registerCommand("vibedeckBridge.copySmokeCommand", async () => {
+      await copySmokeCommand();
+    }),
+  );
+  context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (!event.affectsConfiguration("vibedeckBridge")) {
         return;
@@ -241,6 +246,7 @@ function currentStatusMessage(): string {
       "VibeDeck bridge is stopped",
       `configured address: ${resolveAddress(settings)}`,
       `agent env: ${buildAgentEnvCommand(resolveAddress(settings))}`,
+      `smoke: ${buildSmokeCommand(resolveAddress(settings))}`,
     ].join("\n");
   }
 
@@ -337,6 +343,14 @@ async function copyAgentEnv(): Promise<void> {
   void vscode.window.showInformationMessage(`Copied agent env: ${command}`);
 }
 
+async function copySmokeCommand(): Promise<void> {
+  const settings = activeBridge?.settings ?? readSettings();
+  const address = activeBridge?.address ?? resolveAddress(settings);
+  const command = buildSmokeCommand(address);
+  await vscode.env.clipboard.writeText(command);
+  void vscode.window.showInformationMessage(`Copied smoke command: ${command}`);
+}
+
 async function showStartedMessage(bridge: ActiveBridge): Promise<void> {
   const message = describeBridgeStatus(bridge);
   if (bridge.diagnostics?.missingOptional.length) {
@@ -369,6 +383,7 @@ function describeBridgeStatus(bridge: ActiveBridge): string {
   const lines = [
     `VibeDeck bridge: ${bridge.address} (${bridge.mode})`,
     `agent env: ${buildAgentEnvCommand(bridge.address)}`,
+    `smoke: ${buildSmokeCommand(bridge.address)}`,
   ];
 
   if (!bridge.diagnostics) {
@@ -455,6 +470,10 @@ function resolveAddress(settings: BridgeSettings): string {
 
 function buildAgentEnvCommand(address: string): string {
   return `$env:CURSOR_BRIDGE_TCP_ADDR = "${address}"`;
+}
+
+function buildSmokeCommand(address: string): string {
+  return `powershell -ExecutionPolicy Bypass -File .\\scripts\\extension_host_smoke.ps1 -BridgeAddress "${address}"`;
 }
 
 function normalizePort(value: number): number {

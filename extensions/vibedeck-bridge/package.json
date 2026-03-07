@@ -19,7 +19,8 @@
     "onCommand:vibedeckBridge.stopServer",
     "onCommand:vibedeckBridge.showStatus",
     "onCommand:vibedeckBridge.validateCommands",
-    "onCommand:vibedeckBridge.copyAgentEnv"
+    "onCommand:vibedeckBridge.copyAgentEnv",
+    "onCommand:vibedeckBridge.copySmokeCommand"
   ],
   "contributes": {
     "commands": [
@@ -42,6 +43,10 @@
       {
         "command": "vibedeckBridge.copyAgentEnv",
         "title": "VibeDeck: Copy Agent Env"
+      },
+      {
+        "command": "vibedeckBridge.copySmokeCommand",
+        "title": "VibeDeck: Copy Smoke Command"
       }
     ],
     "configuration": {

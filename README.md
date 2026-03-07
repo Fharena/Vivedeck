@@ -163,8 +163,14 @@ npm --prefix extensions/vibedeck-bridge run build
 1. `extensions/vibedeck-bridge`를 Cursor/VS Code extension으로 로드
 2. extension 설정에서 `vibedeckBridge.mode`를 `mock` 또는 `command`로 지정
 3. command mode라면 `VibeDeck: Validate Commands`로 필수 command 준비 상태 확인
-4. `VibeDeck: Copy Agent Env`로 agent 환경변수 문자열 복사
-5. agent 실행 전에 아래 값을 붙여 넣고 `go run ./cmd/agent` 실행
+4. `VibeDeck: Copy Smoke Command` 또는 `VibeDeck: Copy Agent Env`로 실행 문자열 복사
+5. mock mode smoke는 아래 스크립트로 바로 검증
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\extension_host_smoke.ps1 -BridgeAddress "127.0.0.1:7797"
+```
+
+6. agent를 수동 실행하려면 아래처럼 bridge 주소를 지정
 
 ```powershell
 $env:CURSOR_BRIDGE_TCP_ADDR = "127.0.0.1:7797"
@@ -172,7 +178,8 @@ $env:CURSOR_BRIDGE_TCP_DIAL_TIMEOUT = "3s"
 go run ./cmd/agent
 ```
 
-- `mock` 모드는 실제 extension host 경로 smoke test용입니다.
+- `mock` 모드는 실제 extension host 안에서 등록된 mock command를 통해 `Prompt -> Patch -> Apply -> Run` smoke를 검증하는 용도입니다.
+- `scripts/extension_host_smoke.ps1`는 bridge preflight 후 agent를 띄워 mock mode end-to-end를 확인합니다.`n- Windows에서는 종료 직후 `agent.exe` 잠금 때문에 temp root cleanup warning이 남을 수 있습니다.
 - `command` 모드는 필수 command ID가 extension host에 등록되어 있어야 시작됩니다.
 - 저장소에는 실제 Cursor AI task command 매핑이 포함되어 있지 않으므로, 실사용하려면 해당 command를 제공하는 환경 또는 별도 adapter가 필요합니다.
 
