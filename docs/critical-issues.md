@@ -242,6 +242,18 @@
   - runtime metrics에 handler latency/timeout 비율을 추가해 조기 경고 가능하게 함
 - 학습 포인트:
   - fixture가 빠르게 응답한다고 해서 운영 timeout budget이 충분한 것은 아니며, 실제 AI latency를 기준으로 제어면 budget을 따로 설계해야 함
+### 2026-03-08 / TOOLCHAIN-007 / Windows extension host smoke 종료 직후 agent.exe 잠금
+
+- 증상: `scripts/extension_host_smoke.ps1`가 기능 smoke는 통과하지만 cleanup 단계에서 `Access to the path ''agent.exe'' is denied.` 경고를 남기고 temp root를 지우지 못함
+- 영향: smoke 결과 자체는 확인되지만, 종료 직후 temp 산출물이 남고 스크립트 종료 코드가 불안정해질 수 있음
+- 즉시 대응:
+  - cleanup retry/backoff를 늘리고 Go cache/temp를 스크립트 자체 temp root로 고정
+  - 필요하면 `-KeepTempRoot`로 산출물을 남기고 수동 정리
+- 영구 대응:
+  - `go run` 대신 사전 빌드된 agent binary를 재사용해 Windows 파일 잠금 영향을 줄이는 경로 검토
+  - cleanup 전 child process tree와 handle 해제 시점을 더 정확히 추적
+- 학습 포인트:
+  - Windows smoke 스크립트는 기능 경로 검증과 별개로 프로세스/파일 잠금 해제 타이밍까지 고려해야 안정적으로 종료된다
 ## 해결 방식 학습 체크리스트
 
 1. 문제 재현 명령을 문서화했는가?

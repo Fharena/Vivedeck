@@ -12,12 +12,13 @@
 1. 이 extension을 Cursor/VS Code에 로드
 2. 설정에서 `vibedeckBridge.mode=mock`
 3. bridge 시작 확인
-4. agent 실행 전에 다음 환경변수 설정
+4. `VibeDeck: Copy Smoke Command`를 실행하거나 아래 명령으로 mock smoke 수행
 
 ```powershell
-$env:CURSOR_BRIDGE_TCP_ADDR = "127.0.0.1:7797"
-go run ./cmd/agent
+powershell -ExecutionPolicy Bypass -File .\scripts\extension_host_smoke.ps1 -BridgeAddress "127.0.0.1:7797"
 ```
+
+이 스크립트는 bridge preflight 후 agent를 띄워 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` 전체 흐름을 검증합니다.`nWindows에서는 종료 직후 `agent.exe` 잠금으로 temp root cleanup warning이 남을 수 있습니다.
 
 ## command mode
 
@@ -33,6 +34,7 @@ go run ./cmd/agent
 ### Agent 연결
 
 - `VibeDeck: Copy Agent Env` 명령은 현재 bridge 주소 기준으로 PowerShell 환경변수 문자열을 클립보드에 복사합니다.
+- `VibeDeck: Copy Smoke Command` 명령은 현재 bridge 주소 기준 smoke 스크립트 실행 문자열을 복사합니다.
 - 복사된 값을 agent 실행 터미널에 붙여 넣으면 TCP bridge로 직접 연결됩니다.
 
 ```powershell

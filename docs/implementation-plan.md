@@ -117,17 +117,20 @@
 
 - Go agent external TCP bridge 연결 (`CURSOR_BRIDGE_TCP_ADDR`)
 - TypeScript localhost TCP bridge 서버(`serveSocketBridge`)
-- TCP fixture launcher(`npm run start:fixture:tcp`)
+- TCP fixture launcher(
+pm run start:fixture:tcp`)
 - VS Code/Cursor localhost bridge extension package(`extensions/vibedeck-bridge`)
 - mock mode / command mode 설정 경로
 - command mode 시작 전 registry 검증(`vibedeckBridge.validateCommands`)
 - agent 연결용 PowerShell env 복사 명령(`vibedeckBridge.copyAgentEnv`)
-- status bar / 상태 메시지에 mode, agent env, optional command 누락 경고 반영
+- extension host smoke 명령 복사(`vibedeckBridge.copySmokeCommand`)
+- status bar / 상태 메시지에 mode, agent env, smoke command, optional command 누락 경고 반영
 - `WORKSPACE_ADAPTER_MODE=cursor_agent_cli` 대체 adapter 경로
 - 공식 `cursor-agent` CLI를 임시 git worktree에서 실행해 diff만 회수하는 review-first 오케스트레이션
 - fake CLI helper 기반 `SubmitTask/GetPatch/ApplyPatch/RunProfile` 회귀 테스트
 - adapter 상태 endpoint(`GET /v1/agent/runtime/adapter`)
 - temp repo 기준 실제 smoke 스크립트(`scripts/cursor_agent_smoke.ps1`)
+- extension host mock mode 기준 agent smoke 스크립트(`scripts/extension_host_smoke.ps1`)
 - Windows WSL distro/binary 자동 탐지 + direct exec smoke 지원
 - headless `cursor-agent` 기본 `--trust`, `--model auto` 주입
 - 실제 login 완료 환경에서 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` smoke proof 확보
@@ -135,7 +138,7 @@
 
 ## 다음 작업 우선순위
 
-1. extension host smoke/E2E 자동화
+1. command mode 실사용 E2E와 실제 command ID 매핑
 2. ignored/generated 파일 sync 정책과 운영 메트릭 외부 대시보드 연동
 3. 실제 사용 패키징/온보딩 가이드 정리
 
