@@ -1,121 +1,201 @@
 ﻿import 'package:flutter/material.dart';
 
+import '../state/app_controller.dart';
+
 class StatusScreen extends StatefulWidget {
-  const StatusScreen({super.key});
+  const StatusScreen({
+    super.key,
+    required this.controller,
+  });
+
+  final AppController controller;
 
   @override
   State<StatusScreen> createState() => _StatusScreenState();
 }
 
 class _StatusScreenState extends State<StatusScreen> {
-  final List<String> _states = [
-    'SIGNALING',
-    'P2P_CONNECTING',
-    'P2P_CONNECTED',
-    'RECONNECTING',
-  ];
+  late final TextEditingController _agentUrlController;
+  late final TextEditingController _signalingUrlController;
 
-  int _index = 2;
-  int _pendingAcks = 1;
+  @override
+  void initState() {
+    super.initState();
+    _agentUrlController = TextEditingController(text: widget.controller.agentBaseUrl);
+    _signalingUrlController = TextEditingController(text: widget.controller.signalingBaseUrl);
+  }
 
-  List<StatusEvent> _history = [
-    StatusEvent(state: 'SIGNALING', note: 'pairing 생성 완료', minutesAgo: 3),
-    StatusEvent(state: 'P2P_CONNECTING', note: 'offer 송신', minutesAgo: 2),
-    StatusEvent(state: 'P2P_CONNECTED', note: 'datachannel open', minutesAgo: 1),
-  ];
+  @override
+  void dispose() {
+    _agentUrlController.dispose();
+    _signalingUrlController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final state = _states[_index];
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, _) {
+        final state = widget.controller.connectionState;
 
-    return ListView(
-      key: const ValueKey('status-screen'),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFFEDF9F6),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFB9E6DA)),
-          ),
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('세션 상태', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: List.generate(_states.length, (i) {
-                  return ChoiceChip(
-                    selected: _index == i,
-                    label: Text(_states[i]),
-                    onSelected: (_) {
-                      setState(() {
-                        _index = i;
-                        _history = [
-                          StatusEvent(state: _states[i], note: '수동 상태 확인', minutesAgo: 0),
-                          ..._history,
-                        ];
-                      });
-                    },
-                  );
-                }),
+        return ListView(
+          key: const ValueKey('status-screen'),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFFEDF9F6),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFB9E6DA)),
               ),
-              const SizedBox(height: 12),
-              Row(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _MetricPill(label: 'Current', value: state),
-                  const SizedBox(width: 8),
-                  _MetricPill(label: 'Pending ACK', value: '$_pendingAcks'),
+                  Text('연결 설정', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _agentUrlController,
+                    decoration: const InputDecoration(
+                      labelText: 'Agent Base URL',
+                      hintText: 'http://127.0.0.1:8080',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _signalingUrlController,
+                    decoration: const InputDecoration(
+                      labelText: 'Signaling Base URL',
+                      hintText: 'http://127.0.0.1:8081',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.tonalIcon(
+                          onPressed: widget.controller.isLoading
+                              ? null
+                              : () async {
+                                  widget.controller.updateAgentBaseUrl(_agentUrlController.text);
+                                  widget.controller.updateSignalingBaseUrl(_signalingUrlController.text);
+                                  await widget.controller.refreshStatus();
+                                },
+                          icon: const Icon(Icons.save_outlined),
+                          label: const Text('설정 저장 + 갱신'),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+            const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFD6E9E3)),
+              ),
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('세션 상태', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _MetricPill(label: 'Current', value: state),
+                      _MetricPill(label: 'P2P Active', value: widget.controller.p2pActive ? 'true' : 'false'),
+                      _MetricPill(label: 'Pending ACK', value: '${widget.controller.pendingAckCount}'),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text('sessionId: ${widget.controller.sessionId.isEmpty ? '-' : widget.controller.sessionId}'),
+                  const SizedBox(height: 4),
+                  Text('pairingCode: ${widget.controller.pairingCode.isEmpty ? '-' : widget.controller.pairingCode}'),
+                  if (widget.controller.activity.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text('작업중: ${widget.controller.activity}'),
+                  ],
+                  if (widget.controller.errorMessage != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      widget.controller.errorMessage!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
               children: [
-                Text('Runtime Timeline', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                ..._history.map(
-                  (event) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.timeline),
-                    title: Text(event.state),
-                    subtitle: Text(event.note),
-                    trailing: Text('${event.minutesAgo}m'),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: widget.controller.isLoading ? null : widget.controller.startP2P,
+                    icon: const Icon(Icons.link),
+                    label: const Text('P2P 시작'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1F8C77),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: widget.controller.isLoading ? null : widget.controller.stopP2P,
+                    icon: const Icon(Icons.link_off),
+                    label: const Text('P2P 종료'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
                   ),
                 ),
               ],
             ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        ElevatedButton.icon(
-          onPressed: () {
-            setState(() {
-              _pendingAcks = _pendingAcks == 0 ? 2 : _pendingAcks - 1;
-              _history = [
-                StatusEvent(state: _states[_index], note: 'runtime 상태 조회 갱신', minutesAgo: 0),
-                ..._history,
-              ];
-            });
-          },
-          icon: const Icon(Icons.refresh),
-          label: const Text('상태 갱신 시뮬레이션'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF1F8C77),
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 14),
-          ),
-        ),
-      ],
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: widget.controller.isLoading ? null : widget.controller.refreshStatus,
+              icon: const Icon(Icons.refresh),
+              label: const Text('상태 갱신'),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Runtime Timeline', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    if (widget.controller.runtimeHistory.isEmpty)
+                      const Text('히스토리가 없습니다.')
+                    else
+                      ...widget.controller.runtimeHistory.map(
+                        (event) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.timeline),
+                          title: Text(event.state),
+                          subtitle: Text(event.note.isEmpty ? '-' : event.note),
+                          trailing: Text(event.atLabel),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -147,16 +227,4 @@ class _MetricPill extends StatelessWidget {
       ),
     );
   }
-}
-
-class StatusEvent {
-  const StatusEvent({
-    required this.state,
-    required this.note,
-    required this.minutesAgo,
-  });
-
-  final String state;
-  final String note;
-  final int minutesAgo;
 }

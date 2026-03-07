@@ -21,6 +21,19 @@
 - 학습 포인트:
   - 도구체인은 "설치 여부"뿐 아니라 "실행 경로 표준화"까지 완료돼야 팀 생산성이 안정화됨
 
+### 2026-03-07 / TOOLCHAIN-003 / 경로(공백/한글) + native assets 훅 충돌
+
+- 증상: `flutter test` 실행 시 `objective_c` native assets 훅이 `'C:\Users\99yoo\OneDrive\바탕' is not recognized` 오류로 실패
+- 영향: 모바일 테스트 루프가 환경 경로에 따라 불안정해질 수 있음
+- 즉시 대응:
+  - `google_fonts` 의존성 제거로 transitive native assets 훅 제거
+  - 의존성 단순화 후 `flutter analyze`, `flutter test` 재검증 통과
+- 영구 대응:
+  - 경로 공백/로케일 이슈를 포함한 Flutter CI 매트릭스 테스트 추가
+  - 필요 시 폰트/플러그인 의존성은 native assets 영향 범위를 기준으로 선택
+- 학습 포인트:
+  - 모바일 툴체인 이슈는 기능 코드보다 실행 환경(경로/권한/훅) 검증을 먼저 자동화해야 재발을 줄일 수 있음
+
 ## 런타임 리스크(설계)
 
 ### 2026-03-06 / RUNTIME-001 / ACK 만료 오탐 가능성
@@ -120,5 +133,7 @@
 - 영구 해결 방식:
 - 추가한 회귀 테스트:
 - 학습 포인트:
+
+
 
 

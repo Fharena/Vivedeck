@@ -15,6 +15,16 @@
 - `StatusScreen`: 연결 상태, pending ACK, 히스토리 표시
 - 현재 단계는 mock state 기반 UI이며, 다음 단계에서 `/v1/agent/*` API 연동 예정
 
+## Flutter API 연동 레이어 (`mobile/flutter_app/lib/state/app_controller.dart`)
+
+- `AppController`가 화면 상태와 agent API 호출을 단일 진입점으로 관리
+- `AgentApi`(`mobile/flutter_app/lib/services/agent_api.dart`)가 HTTP 요청/오류 처리 담당
+- 제어 메시지 전송 흐름:
+  1. `PROMPT_SUBMIT` / `PATCH_APPLY` / `RUN_PROFILE` envelope 전송
+  2. 응답 envelope(`responses[]`) 파싱
+  3. non-ACK 응답 RID에 대해 `CMD_ACK` 자동 회신
+- 상태 화면은 runtime/p2p/ack 조회 API를 주기적 갱신으로 표시
+
 ## 핵심 인터페이스
 
 ### WorkspaceAdapter
@@ -173,5 +183,7 @@
 - 클레임 성공 후 디바이스 키 발급
 - MVP에서 HIGH 권한 동작은 기본 비활성화
 - 서버에는 최소 세션 메타데이터만 저장
+
+
 
 

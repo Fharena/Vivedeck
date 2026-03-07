@@ -2,7 +2,7 @@
 import 'package:vibedeck_mobile/app.dart';
 
 void main() {
-  testWidgets('shows shell navigation labels', (tester) async {
+  testWidgets('shows core shell labels', (tester) async {
     await tester.pumpWidget(const VibeDeckApp());
 
     expect(find.text('VibeDeck Mobile'), findsOneWidget);
