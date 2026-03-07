@@ -45,6 +45,8 @@ class AppController extends ChangeNotifier {
   String directPairingCode = '';
   String directSignalingState = 'IDLE';
   bool directSignalingConnected = false;
+  bool directPeerConnected = false;
+  bool directControlReady = false;
   String directSessionId = '';
   String directDeviceKey = '';
   UnmodifiableListView<String> get directSignalLogs =>
@@ -58,6 +60,8 @@ class AppController extends ChangeNotifier {
   StreamSubscription<String>? _directErrorSub;
 
   int _seq = 1;
+
+  String get controlPath => directControlReady ? 'DIRECT' : 'HTTP';
 
   void updateAgentBaseUrl(String value) {
     agentBaseUrl = value.trim();
@@ -119,6 +123,8 @@ class AppController extends ChangeNotifier {
       );
 
       directSignalingConnected = session.isConnected;
+      directPeerConnected = session.isPeerConnected;
+      directControlReady = session.isControlReady;
       directSessionId = session.sessionId;
       directDeviceKey = session.mobileDeviceKey;
       notifyListeners();
@@ -129,6 +135,8 @@ class AppController extends ChangeNotifier {
     return _run('Direct signaling 종료', () async {
       await _closeDirectSignalingSession();
       directSignalingConnected = false;
+      directPeerConnected = false;
+      directControlReady = false;
       directSignalingState = 'CLOSED';
       notifyListeners();
     });
@@ -251,6 +259,60 @@ class AppController extends ChangeNotifier {
   }
 
   Future<List<Map<String, dynamic>>> _sendEnvelopeAndAck(
+    Map<String, dynamic> envelope,
+  ) async {
+    final direct = _directSession;
+    if (direct != null && direct.isControlReady) {
+      try {
+        return await _sendEnvelopeAndAckViaDirect(direct, envelope);
+      } catch (e) {
+        _appendDirectLog('DIRECT 제어 실패 -> HTTP 폴백: $e');
+      }
+    }
+
+    return _sendEnvelopeAndAckViaHttp(envelope);
+  }
+
+  Future<List<Map<String, dynamic>>> _sendEnvelopeAndAckViaDirect(
+    MobileDirectSignalingSession direct,
+    Map<String, dynamic> envelope,
+  ) async {
+    final responses =
+        await direct.sendControlEnvelopeAndAwaitResponses(envelope);
+
+    for (final env in responses) {
+      final typ = env['type']?.toString() ?? '';
+      if (typ == 'CMD_ACK') {
+        continue;
+      }
+
+      final rid = env['rid']?.toString() ?? '';
+      if (rid.isEmpty) {
+        continue;
+      }
+
+      final sid = env['sid']?.toString() ?? _sid();
+      final ackEnvelope = _buildEnvelope(
+        sid: sid,
+        type: 'CMD_ACK',
+        payload: {
+          'requestRid': rid,
+          'accepted': true,
+          'message': 'received by mobile',
+        },
+      );
+
+      try {
+        await direct.sendControlEnvelope(ackEnvelope);
+      } catch (_) {
+        // ACK 실패는 다음 refresh에서 pending으로 관측된다.
+      }
+    }
+
+    return responses;
+  }
+
+  Future<List<Map<String, dynamic>>> _sendEnvelopeAndAckViaHttp(
     Map<String, dynamic> envelope,
   ) async {
     final response = await _api.sendEnvelope(agentBaseUrl, envelope);
@@ -412,6 +474,9 @@ class AppController extends ChangeNotifier {
   }
 
   String _sid() {
+    if (directSessionId.isNotEmpty) {
+      return directSessionId;
+    }
     if (sessionId.isNotEmpty) {
       return sessionId;
     }
@@ -453,11 +518,16 @@ class AppController extends ChangeNotifier {
     _directStateSub = session.states.listen((state) {
       directSignalingState = state.name.toUpperCase();
       directSignalingConnected = session.isConnected;
+      directPeerConnected = session.isPeerConnected;
+      directControlReady = session.isControlReady;
       notifyListeners();
     });
 
     _directEventSub = session.events.listen((event) {
       _appendDirectLog(event.label);
+      directSignalingConnected = session.isConnected;
+      directPeerConnected = session.isPeerConnected;
+      directControlReady = session.isControlReady;
       notifyListeners();
     });
 
@@ -491,6 +561,8 @@ class AppController extends ChangeNotifier {
     }
 
     directSignalingConnected = false;
+    directPeerConnected = false;
+    directControlReady = false;
     directSessionId = '';
     directDeviceKey = '';
   }
@@ -500,18 +572,21 @@ class AppController extends ChangeNotifier {
     final sid = envelope['sid']?.toString() ?? '';
     _appendDirectLog('ENVELOPE: $typ sid=$sid');
 
-    if (typ == 'SIGNAL_OFFER') {
-      _appendDirectLog('모바일 WebRTC peer 미연동: SIGNAL_OFFER 수신(스켈레톤 단계)');
-    }
-    if (typ == 'SIGNAL_ICE') {
-      _appendDirectLog('모바일 WebRTC peer 미연동: SIGNAL_ICE 수신(스켈레톤 단계)');
+    if (typ == 'CMD_ACK') {
+      final payload = envelope['payload'];
+      if (payload is Map) {
+        final requestRid = payload['requestRid']?.toString() ?? '';
+        if (requestRid.isNotEmpty) {
+          _appendDirectLog('DIRECT ACK 수신: requestRid=$requestRid');
+        }
+      }
     }
   }
 
   void _appendDirectLog(String log) {
     _directSignalLogs.insert(0, log);
-    if (_directSignalLogs.length > 40) {
-      _directSignalLogs.removeRange(40, _directSignalLogs.length);
+    if (_directSignalLogs.length > 60) {
+      _directSignalLogs.removeRange(60, _directSignalLogs.length);
     }
   }
 

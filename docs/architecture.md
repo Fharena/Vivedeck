@@ -13,21 +13,21 @@
 - `PromptScreen`: 프롬프트 입력, 템플릿 선택, context 옵션 토글
 - `ReviewScreen`: 파일/헝크 목록 검토와 전체/선택 적용 액션
 - `StatusScreen`: 연결 상태, pending ACK, 히스토리 표시
-- `StatusScreen`에서 direct signaling(pairing claim + WS 연결) 스켈레톤 제어/로그 확인 가능
+- `StatusScreen`에서 direct signaling + WebRTC 상태(ws/peer/datachannel) 제어/로그 확인 가능
 
-## Flutter API 연동 레이어 (`mobile/flutter_app/lib/state/app_controller.dart`)
+## Flutter API/전송 레이어 (`mobile/flutter_app/lib/state/app_controller.dart`)
 
-- `AppController`가 화면 상태와 agent API 호출을 단일 진입점으로 관리
+- `AppController`가 화면 상태와 제어 경로(HTTP/DIRECT) 라우팅을 단일 진입점으로 관리
 - `AgentApi`(`mobile/flutter_app/lib/services/agent_api.dart`)가 HTTP 요청/오류 처리 담당
-- 제어 메시지 전송 흐름:
+- 기본 제어 메시지 전송 흐름:
   1. `PROMPT_SUBMIT` / `PATCH_APPLY` / `RUN_PROFILE` envelope 전송
-  2. 응답 envelope(`responses[]`) 파싱
+  2. 응답 envelope 파싱
   3. non-ACK 응답 RID에 대해 `CMD_ACK` 자동 회신
-- 상태 화면은 runtime/p2p/ack 조회 API를 주기적 갱신으로 표시
-- direct signaling 레이어:
+- direct 제어 경로:
   - `SignalingApi`(`mobile/flutter_app/lib/services/signaling_api.dart`)가 pairing claim + WS URI 생성 담당
-  - `MobileDirectSignalingSession`(`mobile/flutter_app/lib/services/mobile_direct_signaling_session.dart`)가 WS 연결/이벤트/수신 envelope 스트림 관리
-  - 현재는 `SIGNAL_OFFER`/`SIGNAL_ICE` 수신 로깅까지 구현되어 있으며, 실제 모바일 peer 협상은 후속 단계에서 연동
+  - `MobileDirectSignalingSession`(`mobile/flutter_app/lib/services/mobile_direct_signaling_session.dart`)가 signaling WS + `flutter_webrtc` peer를 결합
+  - `SIGNAL_OFFER` 수신 시 answer 생성/송신, `SIGNAL_ICE` 적용, local ICE 송신 처리
+  - DataChannel open(Control Ready) 시 제어 envelope를 DIRECT 경로로 전송, 실패 시 HTTP 경로로 폴백
 
 ## 핵심 인터페이스
 
@@ -187,8 +187,3 @@
 - 클레임 성공 후 디바이스 키 발급
 - MVP에서 HIGH 권한 동작은 기본 비활성화
 - 서버에는 최소 세션 메타데이터만 저장
-
-
-
-
-

@@ -23,3 +23,10 @@ Thumbs.db
 # Local toolchains
 tools/flutter/
 tools/flutter_windows_*.zip
+
+# Flutter (mobile app)
+mobile/flutter_app/.dart_tool/
+mobile/flutter_app/build/
+mobile/flutter_app/.flutter-plugins
+mobile/flutter_app/.flutter-plugins-dependencies
+mobile/flutter_app/.packages

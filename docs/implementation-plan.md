@@ -103,23 +103,23 @@
 - Flutter 화면과 agent API 연동
   - Prompt/Review/Status에서 `/v1/agent/*` 엔드포인트 호출
   - non-ACK envelope 응답에 대한 `CMD_ACK` 자동 회신
-- Flutter direct signaling 스켈레톤
-  - `pairing claim -> signaling ws 연결` 최소 흐름 구현
-  - Status 화면에서 direct signaling 연결/종료, 상태, 최근 로그 확인 가능
-  - `SIGNAL_OFFER`/`SIGNAL_ICE` 수신 시점까지 검증(실제 peer 협상은 미연동)
+- Flutter direct signaling + WebRTC peer 연동
+  - `pairing claim -> signaling ws -> offer/answer/ice -> datachannel open` 흐름 구현
+  - Status 화면에서 direct 연결 상태(ws/peer/control)와 최근 로그 확인 가능
+  - Control Ready 시 Prompt/Review 제어 envelope를 DIRECT(DataChannel) 경로 우선 전송, 실패 시 HTTP 폴백
+  - Windows 공백/한글 경로 테스트 우회를 위한 `mobile/flutter_app/scripts/flutter_test_safe.ps1` 추가
 
 남은 작업:
 
 - Cursor 실제 Extension API 연동
-- 모바일 WebRTC peer 연동(SDP/ICE 적용, DataChannel 연결)
-- 모바일↔에이전트 direct signaling + WebRTC 상호운용 테스트 자동화
+- 모바일↔에이전트 direct 제어 경로 상호운용 자동화 테스트(Flutter integration)
 
 ## 다음 작업 우선순위
 
-1. 모바일(WebRTC 클라이언트) 실제 구현(Flutter WebRTC direct)
-2. MockCursorBridge를 실제 Cursor Extension API로 교체
-3. ACK 재전송/자동 복구(backoff) 정책 구현
-4. 모바일↔에이전트 통합 시나리오 자동화(E2E)
+1. MockCursorBridge를 실제 Cursor Extension API로 교체
+2. ACK 재전송/자동 복구(backoff) 정책 구현
+3. 모바일↔에이전트 direct 제어 경로 통합 시나리오 자동화(E2E/Integration)
+4. 운영 메트릭/관측성(ACK RTT, queue depth) 보강
 
 ## 커밋 전략
 
@@ -140,7 +140,4 @@
 13. `feat(mobile): flutter screen + agent api integration`
 14. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`
 15. `feat(mobile): direct signaling skeleton + status ui`
-
-
-
-
+16. `feat(mobile): flutter webrtc peer + direct control path integration`
