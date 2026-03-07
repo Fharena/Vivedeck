@@ -1,0 +1,121 @@
+{
+  "name": "vibedeck-bridge-extension",
+  "displayName": "VibeDeck Bridge",
+  "description": "Localhost TCP bridge for VibeDeck and Cursor/VS Code extension hosts.",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "fharena",
+  "type": "module",
+  "main": "./dist/extension.js",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:vibedeckBridge.startServer",
+    "onCommand:vibedeckBridge.stopServer",
+    "onCommand:vibedeckBridge.showStatus"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "vibedeckBridge.startServer",
+        "title": "VibeDeck: Start Bridge"
+      },
+      {
+        "command": "vibedeckBridge.stopServer",
+        "title": "VibeDeck: Stop Bridge"
+      },
+      {
+        "command": "vibedeckBridge.showStatus",
+        "title": "VibeDeck: Show Bridge Status"
+      }
+    ],
+    "configuration": {
+      "title": "VibeDeck Bridge",
+      "properties": {
+        "vibedeckBridge.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Cursor/VS Code 실행 시 localhost bridge를 자동으로 시작합니다."
+        },
+        "vibedeckBridge.mode": {
+          "type": "string",
+          "enum": [
+            "command",
+            "mock"
+          ],
+          "default": "command",
+          "description": "command 모드는 설정된 command ID를 호출하고, mock 모드는 저장소 fixture 로직으로 smoke test를 제공합니다."
+        },
+        "vibedeckBridge.tcpHost": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "agent가 붙을 localhost bridge host입니다. 외부 노출은 권장하지 않습니다."
+        },
+        "vibedeckBridge.tcpPort": {
+          "type": "number",
+          "default": 7797,
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "agent가 붙을 localhost bridge port입니다."
+        },
+        "vibedeckBridge.commands.submitTask": {
+          "type": "string",
+          "default": "vibedeck.submitTask",
+          "description": "submitTask를 처리할 command ID"
+        },
+        "vibedeckBridge.commands.getPatch": {
+          "type": "string",
+          "default": "vibedeck.getPatch",
+          "description": "getPatch를 처리할 command ID"
+        },
+        "vibedeckBridge.commands.applyPatch": {
+          "type": "string",
+          "default": "vibedeck.applyPatch",
+          "description": "applyPatch를 처리할 command ID"
+        },
+        "vibedeckBridge.commands.runProfile": {
+          "type": "string",
+          "default": "vibedeck.runProfile",
+          "description": "runProfile을 처리할 command ID"
+        },
+        "vibedeckBridge.commands.getRunResult": {
+          "type": "string",
+          "default": "vibedeck.getRunResult",
+          "description": "getRunResult를 처리할 command ID"
+        },
+        "vibedeckBridge.commands.openLocation": {
+          "type": "string",
+          "default": "",
+          "description": "openLocation을 처리할 optional command ID. 비워두면 기본 editor open 동작을 사용합니다."
+        },
+        "vibedeckBridge.commands.getWorkspaceMetadata": {
+          "type": "string",
+          "default": "vibedeck.getWorkspaceMetadata",
+          "description": "workspace metadata를 읽을 command ID"
+        },
+        "vibedeckBridge.commands.getLatestTerminalError": {
+          "type": "string",
+          "default": "vibedeck.getLatestTerminalError",
+          "description": "latest terminal error를 읽을 command ID"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@vibedeck/cursor-bridge": "file:../../adapters/cursor-bridge"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/vscode": "^1.96.0",
+    "typescript": "^5.9.3"
+  }
+}

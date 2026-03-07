@@ -3,8 +3,9 @@
 ## 시스템 구성 요소
 
 - 모바일 앱(Flutter): Prompt/Review/Status 화면 제공
-- PC 에이전트(Go): 잡 오케스트레이션, 패치 수명주기, 실행 프로파일, 전송 바인딩, Cursor 브리지 child-process 관리
-- Cursor 브리지(TypeScript): Cursor extension host 추상화, extension runtime helper, stdio RPC 서버, 컨텍스트 조회, 패치 적용, 파일/라인 열기
+- PC 에이전트(Go): 잡 오케스트레이션, 패치 수명주기, 실행 프로파일, 전송 바인딩, Cursor 브리지 child-process/TCP 연결 관리
+- Cursor 브리지(TypeScript): Cursor extension host 추상화, extension runtime helper, stdio/TCP RPC 서버, 컨텍스트 조회, 패치 적용, 파일/라인 열기
+- VibeDeck Bridge Extension(VS Code/Cursor): localhost TCP bridge package, mock/command mode 제공
 - Signaling 서버(Go): 페어링 및 WebRTC 시그널링 부트스트랩
 - Relay 서버(Go): 폴백 이벤트 라우팅 + 백프레셔 정책
 
@@ -52,12 +53,14 @@ TypeScript 브리지 패키지 구성:
 - `CursorCommandHost`가 에디터 상태 조회/명령 호출 추상화를 제공
 - `createVSCodeCursorHost`가 VS Code/Cursor runtime과 브리지 계약을 연결
 - `createCursorExtensionRuntime`이 extension activation 시 command registration과 last-run metadata 추적을 담당
-- `serveCursorExtensionBridge`와 `serveStdioBridge`가 newline-delimited JSON RPC over stdio 서버를 구성
+- `serveCursorExtensionBridge`, `serveStdioBridge`, `serveSocketBridge`가 newline-delimited JSON RPC over stdio/TCP 서버를 구성
+- `extensions/vibedeck-bridge`는 mock/command mode와 설정 기반 command ID 매핑을 제공하는 설치 가능한 extension package입니다.
 
 ## 에이전트-브리지 연결
 
 - `cmd/agent`는 기본적으로 Node child process로 Cursor 브리지를 실행합니다.
 - 기본 엔트리포인트는 `adapters/cursor-bridge/dist/fixtureBridgeMain.js`이며, 환경변수로 실제 extension 런처 명령으로 교체할 수 있습니다.
+- `CURSOR_BRIDGE_TCP_ADDR`가 설정되면 agent는 child process 대신 기존 localhost TCP bridge에 직접 연결합니다.
 - `CursorBridgeAdapter`(`internal/agent/cursor_bridge_adapter.go`)가 `name`, `capabilities`, `getContext`, `submitTask`, `getPatch`, `applyPatch`, `runProfile`, `getRunResult`, `openLocation` RPC를 담당합니다.
 
 ## 프로토콜 전략

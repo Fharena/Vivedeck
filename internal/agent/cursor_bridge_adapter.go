@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,13 @@ type CursorBridgeProcessConfig struct {
 	Args           []string
 	WorkingDir     string
 	Env            []string
+	StartupTimeout time.Duration
+	CallTimeout    time.Duration
+}
+
+type CursorBridgeTCPConfig struct {
+	Address        string
+	DialTimeout    time.Duration
 	StartupTimeout time.Duration
 	CallTimeout    time.Duration
 }
@@ -63,7 +71,34 @@ func DefaultCursorBridgeProcessConfig() (CursorBridgeProcessConfig, error) {
 	}, nil
 }
 
+func DefaultCursorBridgeTCPConfig() (CursorBridgeTCPConfig, error) {
+	address := strings.TrimSpace(os.Getenv("CURSOR_BRIDGE_TCP_ADDR"))
+	if address == "" {
+		return CursorBridgeTCPConfig{}, errors.New("CURSOR_BRIDGE_TCP_ADDR is empty")
+	}
+
+	return CursorBridgeTCPConfig{
+		Address:        address,
+		DialTimeout:    durationEnv("CURSOR_BRIDGE_TCP_DIAL_TIMEOUT", 3*time.Second),
+		StartupTimeout: durationEnv("CURSOR_BRIDGE_STARTUP_TIMEOUT", 5*time.Second),
+		CallTimeout:    durationEnv("CURSOR_BRIDGE_CALL_TIMEOUT", 10*time.Second),
+	}, nil
+}
+
 func NewWorkspaceAdapterFromEnv(ctx context.Context) (WorkspaceAdapter, io.Closer, error) {
+	if strings.TrimSpace(os.Getenv("CURSOR_BRIDGE_TCP_ADDR")) != "" {
+		cfg, err := DefaultCursorBridgeTCPConfig()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		adapter, err := NewCursorBridgeTCPAdapter(ctx, cfg)
+		if err != nil {
+			return nil, nil, err
+		}
+		return adapter, adapter, nil
+	}
+
 	cfg, err := DefaultCursorBridgeProcessConfig()
 	if err != nil {
 		return nil, nil, err
@@ -82,7 +117,6 @@ type CursorBridgeAdapter struct {
 	capabilities AdapterCapabilities
 	callTimeout  time.Duration
 
-	cmd   *exec.Cmd
 	stdin io.WriteCloser
 
 	writeMu sync.Mutex
@@ -95,11 +129,13 @@ type CursorBridgeAdapter struct {
 
 	requestSeq atomic.Int64
 
-	done       chan struct{}
-	waitErr    error
-	waitErrMu  sync.RWMutex
-	finishOnce sync.Once
-	closeOnce  sync.Once
+	done            chan struct{}
+	waitErr         error
+	waitErrMu       sync.RWMutex
+	finishOnce      sync.Once
+	closeOnce       sync.Once
+	closeFn         func() error
+	finishOnReadEOF bool
 }
 
 type cursorBridgeRequest struct {
@@ -150,43 +186,90 @@ func NewCursorBridgeAdapter(ctx context.Context, cfg CursorBridgeProcessConfig) 
 		return nil, fmt.Errorf("start cursor bridge command %q: %w", cfg.Command, err)
 	}
 
-	adapter := &CursorBridgeAdapter{
-		callTimeout: cfg.CallTimeout,
-		cmd:         cmd,
-		stdin:       stdin,
-		pending:     make(map[string]chan cursorBridgeResponse),
-		done:        make(chan struct{}),
+	adapter := newCursorBridgeAdapter(stdin, cfg.CallTimeout)
+	adapter.closeFn = func() error {
+		if adapter.stdin != nil {
+			_ = adapter.stdin.Close()
+		}
+
+		select {
+		case <-adapter.done:
+			return nil
+		case <-time.After(2 * time.Second):
+		}
+
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		return nil
 	}
 
 	go adapter.readStdout(stdout)
 	go adapter.readStderr(stderr)
-	go adapter.waitForExit()
+	go adapter.waitForExit(cmd)
 
-	startupCtx := ctx
-	if startupCtx == nil {
-		startupCtx = context.Background()
+	if err := adapter.bootstrap(ctx, cfg.StartupTimeout); err != nil {
+		_ = adapter.Close()
+		return nil, err
 	}
-	if _, hasDeadline := startupCtx.Deadline(); !hasDeadline && cfg.StartupTimeout > 0 {
-		var cancel context.CancelFunc
-		startupCtx, cancel = context.WithTimeout(startupCtx, cfg.StartupTimeout)
-		defer cancel()
+
+	return adapter, nil
+}
+
+func NewCursorBridgeTCPAdapter(ctx context.Context, cfg CursorBridgeTCPConfig) (*CursorBridgeAdapter, error) {
+	if strings.TrimSpace(cfg.Address) == "" {
+		return nil, errors.New("cursor bridge tcp address is required")
 	}
+
+	dialCtx, cancel := withOptionalTimeout(ctx, cfg.DialTimeout)
+	defer cancel()
+
+	dialer := net.Dialer{}
+	conn, err := dialer.DialContext(dialCtx, "tcp", cfg.Address)
+	if err != nil {
+		return nil, fmt.Errorf("dial cursor bridge tcp %q: %w", cfg.Address, err)
+	}
+
+	adapter := newCursorBridgeAdapter(conn, cfg.CallTimeout)
+	adapter.closeFn = conn.Close
+	adapter.finishOnReadEOF = true
+
+	go adapter.readStdout(conn)
+
+	if err := adapter.bootstrap(ctx, cfg.StartupTimeout); err != nil {
+		_ = adapter.Close()
+		return nil, fmt.Errorf("cursor bridge tcp handshake: %w", err)
+	}
+
+	return adapter, nil
+}
+
+func newCursorBridgeAdapter(stdin io.WriteCloser, callTimeout time.Duration) *CursorBridgeAdapter {
+	return &CursorBridgeAdapter{
+		callTimeout: callTimeout,
+		stdin:       stdin,
+		pending:     make(map[string]chan cursorBridgeResponse),
+		done:        make(chan struct{}),
+	}
+}
+
+func (a *CursorBridgeAdapter) bootstrap(ctx context.Context, startupTimeout time.Duration) error {
+	startupCtx, cancel := withOptionalTimeout(ctx, startupTimeout)
+	defer cancel()
 
 	var name string
-	if err := adapter.call(startupCtx, "name", nil, &name); err != nil {
-		_ = adapter.Close()
-		return nil, fmt.Errorf("cursor bridge handshake(name): %w", err)
+	if err := a.call(startupCtx, "name", nil, &name); err != nil {
+		return fmt.Errorf("cursor bridge handshake(name): %w", err)
 	}
 
 	var capabilities AdapterCapabilities
-	if err := adapter.call(startupCtx, "capabilities", nil, &capabilities); err != nil {
-		_ = adapter.Close()
-		return nil, fmt.Errorf("cursor bridge handshake(capabilities): %w", err)
+	if err := a.call(startupCtx, "capabilities", nil, &capabilities); err != nil {
+		return fmt.Errorf("cursor bridge handshake(capabilities): %w", err)
 	}
 
-	adapter.name = name
-	adapter.capabilities = capabilities
-	return adapter, nil
+	a.name = name
+	a.capabilities = capabilities
+	return nil
 }
 
 func (a *CursorBridgeAdapter) Name() string {
@@ -251,18 +334,12 @@ func (a *CursorBridgeAdapter) OpenLocation(ctx context.Context, input OpenLocati
 
 func (a *CursorBridgeAdapter) Close() error {
 	a.closeOnce.Do(func() {
+		if a.closeFn != nil {
+			_ = a.closeFn()
+			return
+		}
 		if a.stdin != nil {
 			_ = a.stdin.Close()
-		}
-
-		select {
-		case <-a.done:
-			return
-		case <-time.After(2 * time.Second):
-		}
-
-		if a.cmd != nil && a.cmd.Process != nil {
-			_ = a.cmd.Process.Kill()
 		}
 	})
 
@@ -271,14 +348,8 @@ func (a *CursorBridgeAdapter) Close() error {
 }
 
 func (a *CursorBridgeAdapter) call(ctx context.Context, method string, params any, out any) error {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline && a.callTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, a.callTimeout)
-		defer cancel()
-	}
+	callCtx, cancel := withOptionalTimeout(ctx, a.callTimeout)
+	defer cancel()
 
 	requestID := fmt.Sprintf("bridge_%d", a.requestSeq.Add(1))
 	responseCh := make(chan cursorBridgeResponse, 1)
@@ -310,7 +381,7 @@ func (a *CursorBridgeAdapter) call(ctx context.Context, method string, params an
 	select {
 	case response, ok := <-responseCh:
 		if !ok {
-			return a.processStoppedError()
+			return a.bridgeStoppedError()
 		}
 		if response.Error != nil {
 			return errors.New(response.Error.Message)
@@ -322,12 +393,12 @@ func (a *CursorBridgeAdapter) call(ctx context.Context, method string, params an
 			return fmt.Errorf("decode cursor bridge response: %w", err)
 		}
 		return nil
-	case <-ctx.Done():
+	case <-callCtx.Done():
 		a.dropPending(requestID)
-		return ctx.Err()
+		return callCtx.Err()
 	case <-a.done:
 		a.dropPending(requestID)
-		return a.processStoppedError()
+		return a.bridgeStoppedError()
 	}
 }
 
@@ -347,6 +418,9 @@ func (a *CursorBridgeAdapter) readStdout(stdout io.Reader) {
 
 		if err != nil {
 			if errors.Is(err, io.EOF) {
+				if a.finishOnReadEOF {
+					a.finish(nil)
+				}
 				return
 			}
 			a.finish(fmt.Errorf("read cursor bridge stdout: %w", err))
@@ -366,8 +440,8 @@ func (a *CursorBridgeAdapter) readStderr(stderr io.Reader) {
 	}
 }
 
-func (a *CursorBridgeAdapter) waitForExit() {
-	err := a.cmd.Wait()
+func (a *CursorBridgeAdapter) waitForExit(cmd *exec.Cmd) {
+	err := cmd.Wait()
 	if err == nil {
 		a.finish(nil)
 		return
@@ -429,13 +503,13 @@ func (a *CursorBridgeAdapter) appendStderr(line string) {
 	}
 }
 
-func (a *CursorBridgeAdapter) processStoppedError() error {
+func (a *CursorBridgeAdapter) bridgeStoppedError() error {
 	a.waitErrMu.RLock()
 	err := a.waitErr
 	a.waitErrMu.RUnlock()
 
 	if err == nil {
-		err = errors.New("cursor bridge process closed")
+		err = errors.New("cursor bridge connection closed")
 	}
 
 	stderr := a.stderrSummary()
@@ -512,4 +586,14 @@ func durationEnv(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return duration
+}
+
+func withOptionalTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && timeout > 0 {
+		return context.WithTimeout(ctx, timeout)
+	}
+	return ctx, func() {}
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"testing"
 	"time"
@@ -28,6 +29,49 @@ func TestCursorBridgeAdapterRoundTrip(t *testing.T) {
 	defer func() {
 		_ = adapter.Close()
 	}()
+
+	assertCursorBridgeRoundTrip(t, adapter)
+}
+
+func TestCursorBridgeTCPAdapterRoundTrip(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp: %v", err)
+	}
+	defer listener.Close()
+
+	errCh := make(chan error, 1)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			errCh <- acceptErr
+			return
+		}
+		defer conn.Close()
+		errCh <- serveHelperRPC(conn, conn)
+	}()
+
+	adapter, err := NewCursorBridgeTCPAdapter(context.Background(), CursorBridgeTCPConfig{
+		Address:        listener.Addr().String(),
+		DialTimeout:    2 * time.Second,
+		StartupTimeout: 2 * time.Second,
+		CallTimeout:    2 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("start tcp bridge adapter: %v", err)
+	}
+	assertCursorBridgeRoundTrip(t, adapter)
+
+	if err := adapter.Close(); err != nil {
+		t.Fatalf("close tcp bridge adapter: %v", err)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("tcp helper exited with error: %v", err)
+	}
+}
+
+func assertCursorBridgeRoundTrip(t *testing.T, adapter *CursorBridgeAdapter) {
+	t.Helper()
 
 	if adapter.Name() != "helper-cursor-bridge" {
 		t.Fatalf("unexpected adapter name: %s", adapter.Name())
@@ -116,33 +160,40 @@ func TestCursorBridgeHelperProcess(t *testing.T) {
 		return
 	}
 
-	reader := bufio.NewReader(os.Stdin)
-	writer := bufio.NewWriter(os.Stdout)
-	defer writer.Flush()
+	if err := serveHelperRPC(os.Stdin, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+func serveHelperRPC(reader io.Reader, writer io.Writer) error {
+	lineReader := bufio.NewReader(reader)
+	lineWriter := bufio.NewWriter(writer)
+	defer lineWriter.Flush()
 
 	for {
-		line, err := reader.ReadBytes('\n')
+		line, err := lineReader.ReadBytes('\n')
 		trimmed := bytes.TrimSpace(line)
 		if len(trimmed) > 0 {
 			var request cursorBridgeRequest
 			if unmarshalErr := json.Unmarshal(trimmed, &request); unmarshalErr != nil {
-				writeHelperResponse(writer, cursorBridgeResponse{
+				writeHelperResponse(lineWriter, cursorBridgeResponse{
 					ID:    request.ID,
 					Error: &cursorBridgeError{Message: unmarshalErr.Error()},
 				})
-				os.Exit(1)
+				return unmarshalErr
 			}
 
 			response := helperResponse(request)
-			writeHelperResponse(writer, response)
+			writeHelperResponse(lineWriter, response)
 		}
 
 		if err != nil {
 			if err == io.EOF {
-				os.Exit(0)
+				return nil
 			}
-			fmt.Fprintln(os.Stderr, err.Error())
-			os.Exit(1)
+			return err
 		}
 	}
 }
