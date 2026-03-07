@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
@@ -63,6 +63,14 @@ class AgentApi {
       method: 'GET',
       baseUrl: baseUrl,
       path: '/v1/agent/runtime/acks/pending',
+    );
+  }
+
+  Future<Map<String, dynamic>> runtimeMetrics(String baseUrl) {
+    return _request(
+      method: 'GET',
+      baseUrl: baseUrl,
+      path: '/v1/agent/runtime/metrics',
     );
   }
 

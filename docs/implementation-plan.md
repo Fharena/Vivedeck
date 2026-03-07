@@ -78,7 +78,7 @@
 
 ### Phase 5: 어댑터/시그널링 고도화
 
-상태: `진행 중`
+상태: `완료(MVP)`
 
 완료된 산출물:
 
@@ -104,14 +104,17 @@
 - Flutter 화면 베이스라인(`mobile/flutter_app`)
 - Flutter 화면과 agent API 연동
 - Flutter direct 제어 경로 widget/controller integration 테스트
+- Agent runtime metrics endpoint(`/v1/agent/runtime/metrics`) + ACK RTT/queue depth 집계
+- Flutter Status ACK observability 카드 + 메트릭 widget 테스트
 
 남은 작업:
 
-- 운영 메트릭/관측성(ACK RTT, queue depth) 보강
+- 없음(MVP 범위 기준 완료)
 
 ## 다음 작업 우선순위
 
-1. 운영 메트릭/관측성(ACK RTT, queue depth) 보강
+1. 실제 Cursor extension host 실사용 배선/패키징
+2. 운영 메트릭 외부 대시보드 연동
 
 ## 커밋 전략
 
@@ -138,3 +141,4 @@
 19. `feat(cursor-bridge): add cursor extension runtime helper`
 20. `feat(runtime): p2p control response ack retry backoff 추가`
 21. `test(mobile): add direct control integration coverage`
+22. `feat(runtime): add ack observability metrics`

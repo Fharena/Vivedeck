@@ -178,6 +178,29 @@ class FakeAgentApi extends AgentApi {
   }
 
   @override
+  Future<Map<String, dynamic>> runtimeMetrics(String baseUrl) async {
+    return {
+      'state': 'P2P_CONNECTED',
+      'ack': {
+        'pendingCount': 0,
+        'maxPendingCount': 2,
+        'pendingByTransport': {
+          'http': 0,
+          'p2p': 0,
+          'unknown': 0,
+        },
+        'ackedCount': 4,
+        'retryDispatchCount': 0,
+        'expiredCount': 0,
+        'exhaustedCount': 0,
+        'lastAckRttMs': 18,
+        'avgAckRttMs': 12,
+        'maxAckRttMs': 18,
+      },
+    };
+  }
+
+  @override
   Future<Map<String, dynamic>> sendEnvelope(
     String baseUrl,
     Map<String, dynamic> envelope,

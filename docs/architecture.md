@@ -12,13 +12,14 @@
 
 - `PromptScreen`: 프롬프트 입력, 템플릿 선택, context 옵션 토글
 - `ReviewScreen`: 파일/헝크 목록 검토와 전체/선택 적용 액션
-- `StatusScreen`: 연결 상태, pending ACK, 히스토리 표시
+- `StatusScreen`: 연결 상태, pending ACK, ACK observability(RTT/queue depth), 히스토리 표시
 - `StatusScreen`에서 direct signaling + WebRTC 상태(ws/peer/datachannel) 제어/로그 확인 가능
 
 ## Flutter API/전송 레이어 (`mobile/flutter_app/lib/state/app_controller.dart`)
 
 - `AppController`가 화면 상태와 제어 경로(HTTP/DIRECT) 라우팅을 단일 진입점으로 관리
 - `AgentApi`(`mobile/flutter_app/lib/services/agent_api.dart`)가 HTTP 요청/오류 처리 담당
+- `AppController`가 `/v1/agent/runtime/metrics`를 조회해 ACK RTT/queue depth/transport split 메트릭을 상태 화면에 반영
 - 기본 제어 메시지 전송 흐름:
   1. `PROMPT_SUBMIT` / `PATCH_APPLY` / `RUN_PROFILE` envelope 전송
   2. 응답 envelope 파싱
@@ -79,6 +80,7 @@ TypeScript 브리지 패키지 구성:
 - P2P(DataChannel) 응답은 retryable pending ACK로 등록하고, 원본 envelope와 마지막 전송 시각을 함께 보존합니다.
 - `P2PSessionManager`가 backoff 간격으로 재전송을 수행하고, 최대 재시도 초과 또는 재전송 실패 시 세션 상태를 `reconnecting`으로 전이합니다.
 - 세션 종료 시 transport별 pending ACK를 정리해 stale 상태를 남기지 않습니다.
+- `AckTracker.Metrics()`가 pending count/max queue depth, transport split, ack RTT(last/avg/max), retry/expired/exhausted 집계를 제공하고 HTTP `/v1/agent/runtime/metrics`로 노출됩니다.
 
 ## 시그널링 레이어(WebRTC 연동)
 

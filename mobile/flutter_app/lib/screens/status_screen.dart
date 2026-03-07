@@ -41,6 +41,8 @@ class _StatusScreenState extends State<StatusScreen> {
     super.dispose();
   }
 
+  String _msLabel(int value) => '${value}ms';
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -166,6 +168,73 @@ class _StatusScreenState extends State<StatusScreen> {
                       ),
                     ),
                   ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFBF2),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFFFE2B8)),
+              ),
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'ACK Observability',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _MetricPill(
+                        label: 'Avg RTT',
+                        value:
+                            _msLabel(widget.controller.ackMetrics.avgAckRttMs),
+                      ),
+                      _MetricPill(
+                        label: 'Last RTT',
+                        value:
+                            _msLabel(widget.controller.ackMetrics.lastAckRttMs),
+                      ),
+                      _MetricPill(
+                        label: 'Max RTT',
+                        value:
+                            _msLabel(widget.controller.ackMetrics.maxAckRttMs),
+                      ),
+                      _MetricPill(
+                        label: 'Peak Queue',
+                        value:
+                            '${widget.controller.ackMetrics.maxPendingCount}',
+                      ),
+                      _MetricPill(
+                        label: 'Acked',
+                        value: '${widget.controller.ackMetrics.ackedCount}',
+                      ),
+                      _MetricPill(
+                        label: 'Retries',
+                        value:
+                            '${widget.controller.ackMetrics.retryDispatchCount}',
+                      ),
+                      _MetricPill(
+                        label: 'Expired',
+                        value: '${widget.controller.ackMetrics.expiredCount}',
+                      ),
+                      _MetricPill(
+                        label: 'Exhausted',
+                        value: '${widget.controller.ackMetrics.exhaustedCount}',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'transport split: ${widget.controller.ackMetrics.pendingSplitLabel}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ],
               ),
             ),

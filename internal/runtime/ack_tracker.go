@@ -28,6 +28,19 @@ type PendingAck struct {
 	MaxRetries   int          `json:"maxRetries"`
 }
 
+type AckMetrics struct {
+	PendingCount       int            `json:"pendingCount"`
+	MaxPendingCount    int            `json:"maxPendingCount"`
+	PendingByTransport map[string]int `json:"pendingByTransport"`
+	AckedCount         int            `json:"ackedCount"`
+	RetryDispatchCount int            `json:"retryDispatchCount"`
+	ExpiredCount       int            `json:"expiredCount"`
+	ExhaustedCount     int            `json:"exhaustedCount"`
+	LastAckRTTMs       int64          `json:"lastAckRttMs"`
+	AvgAckRTTMs        int64          `json:"avgAckRttMs"`
+	MaxAckRTTMs        int64          `json:"maxAckRttMs"`
+}
+
 type AckTrackerConfig struct {
 	Timeout           time.Duration
 	MaxRetries        int
@@ -49,6 +62,17 @@ type trackedAck struct {
 	envelope protocol.Envelope
 }
 
+type ackMetricState struct {
+	ackedCount         int
+	retryDispatchCount int
+	expiredCount       int
+	exhaustedCount     int
+	maxPendingCount    int
+	totalAckRTT        time.Duration
+	lastAckRTT         time.Duration
+	maxAckRTT          time.Duration
+}
+
 type AckTracker struct {
 	timeout           time.Duration
 	maxRetries        int
@@ -57,6 +81,7 @@ type AckTracker struct {
 
 	mu      sync.Mutex
 	pending map[string]trackedAck
+	metrics ackMetricState
 }
 
 func DefaultAckTrackerConfig() AckTrackerConfig {
@@ -64,6 +89,12 @@ func DefaultAckTrackerConfig() AckTrackerConfig {
 		Timeout:           2 * time.Second,
 		MaxRetries:        2,
 		BackoffMultiplier: 2,
+	}
+}
+
+func EmptyAckMetrics() AckMetrics {
+	return AckMetrics{
+		PendingByTransport: defaultPendingByTransport(),
 	}
 }
 
@@ -131,11 +162,13 @@ func (t *AckTracker) Ack(rid string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if _, ok := t.pending[rid]; !ok {
+	tracked, ok := t.pending[rid]
+	if !ok {
 		return false
 	}
 
 	delete(t.pending, rid)
+	t.observeAckLocked(tracked.pending, t.now().UTC())
 	return true
 }
 
@@ -158,6 +191,35 @@ func (t *AckTracker) Snapshot() []PendingAck {
 	return out
 }
 
+func (t *AckTracker) Metrics() AckMetrics {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	pendingByTransport := defaultPendingByTransport()
+	for _, tracked := range t.pending {
+		transport := string(normalizeTransport(tracked.pending.Transport))
+		pendingByTransport[transport]++
+	}
+
+	avgAckRTT := int64(0)
+	if t.metrics.ackedCount > 0 {
+		avgAckRTT = (t.metrics.totalAckRTT / time.Duration(t.metrics.ackedCount)).Milliseconds()
+	}
+
+	return AckMetrics{
+		PendingCount:       len(t.pending),
+		MaxPendingCount:    t.metrics.maxPendingCount,
+		PendingByTransport: pendingByTransport,
+		AckedCount:         t.metrics.ackedCount,
+		RetryDispatchCount: t.metrics.retryDispatchCount,
+		ExpiredCount:       t.metrics.expiredCount,
+		ExhaustedCount:     t.metrics.exhaustedCount,
+		LastAckRTTMs:       durationMillis(t.metrics.lastAckRTT),
+		AvgAckRTTMs:        avgAckRTT,
+		MaxAckRTTMs:        durationMillis(t.metrics.maxAckRTT),
+	}
+}
+
 func (t *AckTracker) DueRetries() AckRetryBatch {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -176,6 +238,7 @@ func (t *AckTracker) DueRetries() AckRetryBatch {
 
 		if pending.RetryCount >= pending.MaxRetries {
 			batch.Exhausted = append(batch.Exhausted, pending)
+			t.metrics.exhaustedCount++
 			delete(t.pending, rid)
 			continue
 		}
@@ -185,6 +248,7 @@ func (t *AckTracker) DueRetries() AckRetryBatch {
 		pending.ExpiresAt = now.Add(t.nextDelay(pending.RetryCount))
 		tracked.pending = pending
 		t.pending[rid] = tracked
+		t.metrics.retryDispatchCount++
 
 		batch.Retries = append(batch.Retries, AckRetry{
 			Pending:  pending,
@@ -212,6 +276,7 @@ func (t *AckTracker) Expired() []PendingAck {
 		}
 
 		expired = append(expired, pending)
+		t.metrics.expiredCount++
 		delete(t.pending, rid)
 	}
 
@@ -245,6 +310,28 @@ func (t *AckTracker) registerLocked(entry trackedAck) {
 	entry.pending.Transport = normalizeTransport(entry.pending.Transport)
 
 	t.pending[entry.pending.RID] = entry
+	if len(t.pending) > t.metrics.maxPendingCount {
+		t.metrics.maxPendingCount = len(t.pending)
+	}
+}
+
+func (t *AckTracker) observeAckLocked(pending PendingAck, ackedAt time.Time) {
+	base := pending.LastSentAt
+	if base.IsZero() {
+		base = pending.RegisteredAt
+	}
+
+	rtt := ackedAt.Sub(base)
+	if rtt < 0 {
+		rtt = 0
+	}
+
+	t.metrics.ackedCount++
+	t.metrics.totalAckRTT += rtt
+	t.metrics.lastAckRTT = rtt
+	if rtt > t.metrics.maxAckRTT {
+		t.metrics.maxAckRTT = rtt
+	}
 }
 
 func (t *AckTracker) nextDelay(retryCount int) time.Duration {
@@ -270,4 +357,19 @@ func normalizeTransport(transport AckTransport) AckTransport {
 		return AckTransportUnknown
 	}
 	return transport
+}
+
+func defaultPendingByTransport() map[string]int {
+	return map[string]int{
+		string(AckTransportUnknown): 0,
+		string(AckTransportHTTP):    0,
+		string(AckTransportP2P):     0,
+	}
+}
+
+func durationMillis(value time.Duration) int64 {
+	if value <= 0 {
+		return 0
+	}
+	return value.Milliseconds()
 }
