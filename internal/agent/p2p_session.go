@@ -390,7 +390,7 @@ func (m *P2PSessionManager) peerMessageLoop(ctx context.Context, rt *p2pRuntime)
 				continue
 			}
 
-			handleCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			handleCtx, cancel := context.WithTimeout(ctx, controlEnvelopeTimeout(env.Type))
 			result, err := m.controlRouter.HandleEnvelope(handleCtx, env)
 			cancel()
 			if err != nil {

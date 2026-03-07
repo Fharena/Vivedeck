@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/Fharena/Vivedeck/internal/protocol"
 	"github.com/Fharena/Vivedeck/internal/runtime"
@@ -80,7 +79,7 @@ func (s *HTTPServer) handleEnvelope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), controlEnvelopeTimeout(env.Type))
 	defer cancel()
 
 	result, err := s.controlRouter.HandleEnvelope(ctx, env)

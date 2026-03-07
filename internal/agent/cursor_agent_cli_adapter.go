@@ -105,6 +105,8 @@ func DefaultCursorAgentCLIConfig() (CursorAgentCLIConfig, error) {
 	if len(cursorAgentArgs) == 0 {
 		cursorAgentArgs = []string{"--print", "--output-format", "json"}
 	}
+	cursorAgentArgs = ensureCursorAgentTrustFlag(cursorAgentArgs, trustWorkspaceEnv("CURSOR_AGENT_TRUST_WORKSPACE", true))
+	cursorAgentArgs = ensureCursorAgentModelArg(cursorAgentArgs, defaultCursorAgentModel())
 
 	cursorAgentEnv, err := jsonStringArrayEnv("CURSOR_AGENT_ENV_JSON")
 	if err != nil {
@@ -997,13 +999,60 @@ func platformShellCommand(command string) (string, []string) {
 }
 
 func boolEnv(key string) bool {
+	return trustWorkspaceEnv(key, false)
+}
+
+func trustWorkspaceEnv(key string, fallback bool) bool {
 	value := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if value == "" {
+		return fallback
+	}
 	switch value {
 	case "1", "true", "yes", "on":
 		return true
 	default:
 		return false
 	}
+}
+
+func ensureCursorAgentTrustFlag(args []string, enabled bool) []string {
+	if !enabled {
+		return append([]string{}, args...)
+	}
+	for _, arg := range args {
+		if arg == "--trust" {
+			return append([]string{}, args...)
+		}
+	}
+	out := append([]string{}, args...)
+	out = append(out, "--trust")
+	return out
+}
+
+func defaultCursorAgentModel() string {
+	model := strings.TrimSpace(os.Getenv("CURSOR_AGENT_MODEL"))
+	if model == "" {
+		return "auto"
+	}
+	return model
+}
+
+func ensureCursorAgentModelArg(args []string, model string) []string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return append([]string{}, args...)
+	}
+	for index, arg := range args {
+		if arg == "--model" && index+1 < len(args) {
+			return append([]string{}, args...)
+		}
+		if strings.HasPrefix(arg, "--model=") {
+			return append([]string{}, args...)
+		}
+	}
+	out := append([]string{}, args...)
+	out = append(out, "--model", model)
+	return out
 }
 
 func defaultWSLExecutable(current string) string {

@@ -240,6 +240,50 @@ func TestBuildWSLCursorAgentArgs(t *testing.T) {
 		}
 	}
 }
+func TestEnsureCursorAgentTrustFlag(t *testing.T) {
+	args := ensureCursorAgentTrustFlag([]string{"--print", "--output-format", "json"}, true)
+	want := []string{"--print", "--output-format", "json", "--trust"}
+	if len(args) != len(want) {
+		t.Fatalf("expected %d args, got %d (%v)", len(want), len(args), args)
+	}
+	for i, expected := range want {
+		if args[i] != expected {
+			t.Fatalf("arg %d: want %q, got %q", i, expected, args[i])
+		}
+	}
+
+	alreadyTrusted := ensureCursorAgentTrustFlag([]string{"--print", "--trust"}, true)
+	if len(alreadyTrusted) != 2 {
+		t.Fatalf("expected duplicate trust to be avoided: %v", alreadyTrusted)
+	}
+
+	disabled := ensureCursorAgentTrustFlag([]string{"--print"}, false)
+	if len(disabled) != 1 || disabled[0] != "--print" {
+		t.Fatalf("expected disabled trust to preserve args: %v", disabled)
+	}
+}
+func TestEnsureCursorAgentModelArg(t *testing.T) {
+	args := ensureCursorAgentModelArg([]string{"--print", "--output-format", "json"}, "auto")
+	want := []string{"--print", "--output-format", "json", "--model", "auto"}
+	if len(args) != len(want) {
+		t.Fatalf("expected %d args, got %d (%v)", len(want), len(args), args)
+	}
+	for i, expected := range want {
+		if args[i] != expected {
+			t.Fatalf("arg %d: want %q, got %q", i, expected, args[i])
+		}
+	}
+
+	alreadyModel := ensureCursorAgentModelArg([]string{"--print", "--model", "opus-4.6-thinking"}, "auto")
+	if len(alreadyModel) != 3 {
+		t.Fatalf("expected existing model to be preserved: %v", alreadyModel)
+	}
+
+	disabled := ensureCursorAgentModelArg([]string{"--print"}, "")
+	if len(disabled) != 1 || disabled[0] != "--print" {
+		t.Fatalf("expected empty model to preserve args: %v", disabled)
+	}
+}
 func newTestCursorAgentCLIAdapter(t *testing.T, repo, mode, targetFile string) *CursorAgentCLIAdapter {
 	t.Helper()
 	cfg := CursorAgentCLIConfig{
