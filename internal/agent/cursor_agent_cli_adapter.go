@@ -44,6 +44,8 @@ type CursorAgentCLIAdapter struct {
 	lastRunProfile      string
 	lastRunStatus       string
 	latestTerminalError string
+	resolvedGitBin      string
+	resolvedCursorAgent string
 }
 
 type cursorAgentTask struct {
@@ -141,10 +143,12 @@ func NewCursorAgentCLIAdapter(ctx context.Context, cfg CursorAgentCLIConfig) (*C
 		}
 		cfg.WorkspaceRoot = cwd
 	}
-	if _, err := exec.LookPath(cfg.GitBin); err != nil {
+	gitPath, err := exec.LookPath(cfg.GitBin)
+	if err != nil {
 		return nil, fmt.Errorf("find git binary %q: %w", cfg.GitBin, err)
 	}
-	if _, err := exec.LookPath(cfg.CursorAgentBin); err != nil {
+	cursorAgentPath, err := exec.LookPath(cfg.CursorAgentBin)
+	if err != nil {
 		return nil, fmt.Errorf("find cursor-agent binary %q: %w", cfg.CursorAgentBin, err)
 	}
 
@@ -155,14 +159,39 @@ func NewCursorAgentCLIAdapter(ctx context.Context, cfg CursorAgentCLIConfig) (*C
 	cfg.WorkspaceRoot = repoRoot
 
 	return &CursorAgentCLIAdapter{
-		cfg:   cfg,
-		tasks: make(map[string]*cursorAgentTask),
-		runs:  make(map[string]*RunResult),
+		cfg:                 cfg,
+		tasks:               make(map[string]*cursorAgentTask),
+		runs:                make(map[string]*RunResult),
+		resolvedGitBin:      gitPath,
+		resolvedCursorAgent: cursorAgentPath,
 	}, nil
 }
 
 func (a *CursorAgentCLIAdapter) Name() string {
 	return "cursor-agent-cli"
+}
+
+func (a *CursorAgentCLIAdapter) RuntimeInfo() AdapterRuntimeInfo {
+	info := AdapterRuntimeInfo{
+		Name:          a.Name(),
+		Mode:          "cursor_agent_cli",
+		Ready:         true,
+		Capabilities:  a.Capabilities(),
+		WorkspaceRoot: a.cfg.WorkspaceRoot,
+		Binary:        a.cfg.CursorAgentBin,
+		BinaryPath:    a.resolvedCursorAgent,
+		TempRoot:      a.cfg.TempRoot,
+		PromptTimeout: a.cfg.PromptTimeout.String(),
+		RunTimeout:    a.cfg.RunTimeout.String(),
+	}
+	info.Notes = []string{
+		"cursor-agent runs inside a temporary git worktree snapshot",
+		"review approval applies the resulting diff to the real workspace with git apply",
+	}
+	if a.resolvedGitBin != "" {
+		info.Notes = append(info.Notes, "git binary: "+a.resolvedGitBin)
+	}
+	return info
 }
 
 func (a *CursorAgentCLIAdapter) Capabilities() AdapterCapabilities {

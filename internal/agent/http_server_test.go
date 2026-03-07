@@ -13,12 +13,14 @@ import (
 )
 
 func newTestHTTPServer() (*HTTPServer, *runtime.AckTracker) {
-	orch := NewOrchestrator(NewMockAdapter(), DefaultRunProfiles())
+	adapter := NewMockAdapter()
+	orch := NewOrchestrator(adapter, DefaultRunProfiles())
 	stateManager := runtime.NewStateManager(runtime.DefaultManagerConfig())
 	ackTracker := runtime.NewAckTracker(2 * time.Second)
 	p2pManager := NewP2PSessionManager(stateManager, ackTracker, orch, "http://127.0.0.1:8081")
 
 	server := NewHTTPServer(
+		adapter,
 		orch,
 		stateManager,
 		ackTracker,
@@ -92,6 +94,32 @@ func TestHTTPServerRuntimeMetrics(t *testing.T) {
 	}
 	if body.Ack.PendingByTransport[string(runtime.AckTransportHTTP)] != 0 {
 		t.Fatalf("expected http pending 0")
+	}
+}
+
+func TestHTTPServerRuntimeAdapter(t *testing.T) {
+	server, _ := newTestHTTPServer()
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/agent/runtime/adapter", nil)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var body AdapterRuntimeInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode runtime adapter: %v", err)
+	}
+	if body.Name != "mock-cursor" {
+		t.Fatalf("expected adapter name mock-cursor, got %s", body.Name)
+	}
+	if !body.Ready {
+		t.Fatalf("expected adapter ready")
+	}
+	if !body.Capabilities.SupportsStructuredPatch {
+		t.Fatalf("expected structured patch capability")
 	}
 }
 

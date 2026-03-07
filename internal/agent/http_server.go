@@ -12,14 +12,16 @@ import (
 )
 
 type HTTPServer struct {
+	adapter       WorkspaceAdapter
 	stateManager  *runtime.StateManager
 	ackTracker    *runtime.AckTracker
 	controlRouter *ControlRouter
 	p2pManager    *P2PSessionManager
 }
 
-func NewHTTPServer(orchestrator *Orchestrator, stateManager *runtime.StateManager, ackTracker *runtime.AckTracker, p2pManager *P2PSessionManager) *HTTPServer {
+func NewHTTPServer(adapter WorkspaceAdapter, orchestrator *Orchestrator, stateManager *runtime.StateManager, ackTracker *runtime.AckTracker, p2pManager *P2PSessionManager) *HTTPServer {
 	return &HTTPServer{
+		adapter:       adapter,
 		stateManager:  stateManager,
 		ackTracker:    ackTracker,
 		controlRouter: NewControlRouter(orchestrator, ackTracker),
@@ -33,6 +35,7 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("/v1/agent/envelope", s.handleEnvelope)
 	mux.HandleFunc("/v1/agent/runtime/state", s.handleRuntimeState)
 	mux.HandleFunc("/v1/agent/runtime/metrics", s.handleRuntimeMetrics)
+	mux.HandleFunc("/v1/agent/runtime/adapter", s.handleRuntimeAdapter)
 	mux.HandleFunc("/v1/agent/runtime/acks/expired", s.handleExpiredAcks)
 	mux.HandleFunc("/v1/agent/runtime/acks/pending", s.handlePendingAcks)
 	mux.HandleFunc("/v1/agent/p2p/start", s.handleP2PStart)
@@ -180,6 +183,19 @@ func (s *HTTPServer) handleRuntimeMetrics(w http.ResponseWriter, r *http.Request
 		"state": state,
 		"ack":   metrics,
 	})
+}
+
+func (s *HTTPServer) handleRuntimeAdapter(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	info := BasicAdapterRuntimeInfo(s.adapter)
+	if provider, ok := s.adapter.(AdapterRuntimeInfoProvider); ok {
+		info = provider.RuntimeInfo()
+	}
+	writeJSON(w, http.StatusOK, info)
 }
 
 func (s *HTTPServer) handleExpiredAcks(w http.ResponseWriter, r *http.Request) {

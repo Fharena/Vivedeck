@@ -126,10 +126,12 @@
 - `WORKSPACE_ADAPTER_MODE=cursor_agent_cli` 대체 adapter 경로
 - 공식 `cursor-agent` CLI를 임시 git worktree에서 실행해 diff만 회수하는 review-first 오케스트레이션
 - fake CLI helper 기반 `SubmitTask/GetPatch/ApplyPatch/RunProfile` 회귀 테스트
+- adapter 상태 endpoint(`GET /v1/agent/runtime/adapter`)
+- temp repo 기준 실제 smoke 스크립트(`scripts/cursor_agent_smoke.ps1`)
 
 ## 다음 작업 우선순위
 
-1. 실제 `cursor-agent` 바이너리 기준 smoke/E2E 검증 및 패키징 가이드 보강
+1. 실제 `cursor-agent` 설치 환경에서 smoke 스크립트 실행 결과 수집 및 실패 케이스 보정
 2. extension host smoke/E2E 자동화
 3. ignored/generated 파일 sync 정책과 운영 메트릭 외부 대시보드 연동
 
@@ -162,3 +164,4 @@
 23. `feat(cursor-bridge): add localhost tcp extension bridge`
 24. `feat(extension): add bridge command readiness diagnostics`
 25. `feat(agent): add cursor-agent cli worktree adapter`
+26. `feat(ops): add cursor-agent smoke diagnostics`
