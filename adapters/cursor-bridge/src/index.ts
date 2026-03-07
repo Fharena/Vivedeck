@@ -5,4 +5,5 @@ export * from "./fixtureCursorBridge.js";
 export * from "./mockCursorBridge.js";
 export * from "./stdioBridgeServer.js";
 export * from "./stdioProtocol.js";
+export * from "./vscodeExtensionRuntime.js";
 export * from "./vscodeCursorHost.js";

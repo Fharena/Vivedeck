@@ -38,6 +38,8 @@ export const defaultCursorBridgeCommands: CursorBridgeCommands = {
   applyPatch: "vibedeck.applyPatch",
   runProfile: "vibedeck.runProfile",
   getRunResult: "vibedeck.getRunResult",
+  getWorkspaceMetadata: "vibedeck.getWorkspaceMetadata",
+  getLatestTerminalError: "vibedeck.getLatestTerminalError",
 };
 
 const defaultCapabilities: AdapterCapabilities = {

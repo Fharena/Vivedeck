@@ -4,7 +4,7 @@
 
 - 모바일 앱(Flutter): Prompt/Review/Status 화면 제공
 - PC 에이전트(Go): 잡 오케스트레이션, 패치 수명주기, 실행 프로파일, 전송 바인딩, Cursor 브리지 child-process 관리
-- Cursor 브리지(TypeScript): Cursor extension host 추상화, stdio RPC 서버, 컨텍스트 조회, 패치 적용, 파일/라인 열기
+- Cursor 브리지(TypeScript): Cursor extension host 추상화, extension runtime helper, stdio RPC 서버, 컨텍스트 조회, 패치 적용, 파일/라인 열기
 - Signaling 서버(Go): 페어링 및 WebRTC 시그널링 부트스트랩
 - Relay 서버(Go): 폴백 이벤트 라우팅 + 백프레셔 정책
 
@@ -50,7 +50,8 @@ TypeScript 브리지 패키지 구성:
 - `CursorExtensionBridge`가 Cursor command 결과를 `WorkspaceAdapter` 계약으로 정규화
 - `CursorCommandHost`가 에디터 상태 조회/명령 호출 추상화를 제공
 - `createVSCodeCursorHost`가 VS Code/Cursor runtime과 브리지 계약을 연결
-- `serveStdioBridge`가 Go agent와 newline-delimited JSON RPC over stdio로 통신
+- `createCursorExtensionRuntime`이 extension activation 시 command registration과 last-run metadata 추적을 담당
+- `serveCursorExtensionBridge`와 `serveStdioBridge`가 newline-delimited JSON RPC over stdio 서버를 구성
 
 ## 에이전트-브리지 연결
 
