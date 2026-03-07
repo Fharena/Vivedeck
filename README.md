@@ -117,6 +117,24 @@ go run ./cmd/agent
 - `CURSOR_AGENT_PROMPT_TIMEOUT`: 프롬프트 실행 타임아웃, 기본값 `2m`
 - `CURSOR_AGENT_RUN_TIMEOUT`: run profile 실행 타임아웃, 기본값 `2m`
 
+### Cursor Agent Smoke Script
+
+실제 `cursor-agent` 바이너리가 설치돼 있으면 아래 스크립트로 temp repo 기준 smoke 테스트를 바로 돌릴 수 있습니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\cursor_agent_smoke.ps1
+```
+
+스크립트가 하는 일:
+
+- temp git repo 생성
+- `WORKSPACE_ADAPTER_MODE=cursor_agent_cli`로 agent 실행
+- `GET /v1/agent/runtime/adapter`로 adapter/binary 상태 확인
+- `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE(smoke)` 순서 실행
+- 실제 변경이 temp repo 파일에 반영됐는지 확인
+
+현재 PC처럼 `cursor-agent`가 없으면 스크립트는 즉시 설치/경로 안내 메시지와 함께 종료됩니다.
+
 ### 실제 extension host 연결
 
 Cursor/VS Code 안에서 localhost TCP bridge를 열고 agent가 거기에 붙게 하려면 다음 순서를 사용합니다.

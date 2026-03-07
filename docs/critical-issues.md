@@ -172,6 +172,21 @@
 - 학습 포인트:
   - 공식 AI 실행 경로가 있다고 해서 곧바로 제품 UX에 맞는 것은 아니며, review-first 제품은 실행 경계(workspace isolation)를 먼저 설계해야 함
 
+### 2026-03-08 / TOOLCHAIN-006 / 로컬 Windows 환경에 cursor-agent 바이너리 부재
+
+- 증상: `where.exe cursor-agent`와 `scripts/cursor_agent_smoke.ps1` 실행이 모두 `cursor-agent` 명령을 찾지 못해 종료됨
+- 영향: 실제 Cursor CLI 기준 smoke/E2E를 이 PC에서 즉시 수행할 수 없음
+- 즉시 대응:
+  - smoke 스크립트에서 preflight check로 설치/경로 누락을 즉시 실패 처리
+  - `CURSOR_AGENT_BIN` override 경로를 지원해 PATH 미등록 환경도 수동 지정 가능하게 유지
+  - `/v1/agent/runtime/adapter` endpoint로 adapter/binary 상태를 바로 확인 가능하게 함
+- 영구 대응:
+  - 팀 로컬 환경에 Cursor CLI 설치 절차를 표준화
+  - 실제 설치 환경에서 `scripts/cursor_agent_smoke.ps1` 결과를 CI 또는 운영 체크리스트에 포함
+  - Windows PATH 등록 여부와 설치 위치 차이를 가이드에 명시
+- 학습 포인트:
+  - 실사용 smoke는 기능 코드만으로 끝나지 않고, 실제 실행 바이너리의 설치/경로 가시성까지 포함해야 재현 가능성이 확보됨
+
 ## 해결 방식 학습 체크리스트
 
 1. 문제 재현 명령을 문서화했는가?
