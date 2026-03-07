@@ -1,10 +1,10 @@
-﻿# 아키텍처
+# 아키텍처
 
 ## 시스템 구성 요소
 
 - 모바일 앱(Flutter): Prompt/Review/Status 화면 제공
 - PC 에이전트(Go): 잡 오케스트레이션, 패치 수명주기, 실행 프로파일, 전송 바인딩
-- Cursor 브리지(TypeScript): 컨텍스트 조회, 패치 적용, 파일/라인 열기
+- Cursor 브리지(TypeScript): Cursor extension host 추상화, 컨텍스트 조회, 패치 적용, 파일/라인 열기
 - Signaling 서버(Go): 페어링 및 WebRTC 시그널링 부트스트랩
 - Relay 서버(Go): 폴백 이벤트 라우팅 + 백프레셔 정책
 
@@ -44,6 +44,12 @@
 - `RunProfile`
 - `GetRunResult`
 - `OpenLocation`
+
+TypeScript 브리지 패키지 구성:
+
+- `CursorExtensionBridge`가 Cursor command 결과를 `WorkspaceAdapter` 계약으로 정규화
+- `CursorCommandHost`가 에디터 상태 조회/명령 호출 추상화를 제공
+- `createVSCodeCursorHost`가 VS Code/Cursor runtime과 브리지 계약을 연결
 
 ## 프로토콜 전략
 
