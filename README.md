@@ -120,7 +120,9 @@ go run ./cmd/agent
 추가 환경변수:
 
 - `CURSOR_AGENT_BIN`: 기본값 `cursor-agent`, WSL 모드에서는 기본값 `wsl.exe`
-- `CURSOR_AGENT_ARGS_JSON`: CLI 인자를 JSON 배열로 직접 지정할 때 사용, 기본값 `["--print","--output-format","json"]`
+- `CURSOR_AGENT_ARGS_JSON`: CLI 인자를 JSON 배열로 직접 지정할 때 사용, 기본값은 `["--print","--output-format","json"]`이고 `--trust`, `--model <값>`이 없으면 agent가 자동 주입
+- `CURSOR_AGENT_TRUST_WORKSPACE`: 기본값 `true`, CLI 인자에 `--trust`가 없으면 자동 추가
+- `CURSOR_AGENT_MODEL`: 기본값 `auto`, CLI 인자에 model이 없으면 `--model <값>` 자동 추가
 - `CURSOR_AGENT_ENV_JSON`: CLI 실행 환경변수를 JSON 배열로 지정할 때 사용
 - `CURSOR_AGENT_USE_WSL`: Windows에서 WSL 안의 Cursor CLI를 사용할 때 `true`
 - `CURSOR_AGENT_WSL_DISTRO`: 특정 WSL distro를 강제로 지정할 때 사용, 비우면 자동 탐지
@@ -145,7 +147,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\cursor_agent_smoke.ps1
 - `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE(smoke)` 순서 실행
 - 실제 변경이 temp repo 파일에 반영됐는지 확인
 
-현재 스크립트는 네이티브 `cursor-agent`가 없어도 WSL 안의 `cursor-agent`/`agent`를 자동 탐지합니다. 이 PC에서 실제 smoke는 여기까지 통과했고, 현재 마지막 블로커는 Cursor 인증(`agent login` 또는 `CURSOR_API_KEY`)입니다.
+현재 스크립트는 네이티브 `cursor-agent`가 없어도 WSL 안의 `cursor-agent`/`agent`를 자동 탐지합니다. 이 PC에서는 `cursor-agent login` 완료 후 실제 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` smoke가 통과했습니다. headless 실행 안정성을 위해 agent는 `--trust`와 `--model auto`를 기본 주입하고, HTTP/P2P control 경로는 message type별 timeout(`PROMPT_SUBMIT`/`RUN_PROFILE`: 2분, `PATCH_APPLY`: 30초)을 사용합니다.
 
 ### 실제 extension host 연결
 

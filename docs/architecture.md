@@ -66,11 +66,13 @@ TypeScript 브리지 패키지 구성:
 - `CursorBridgeAdapter`(`internal/agent/cursor_bridge_adapter.go`)가 `name`, `capabilities`, `getContext`, `submitTask`, `getPatch`, `applyPatch`, `runProfile`, `getRunResult`, `openLocation` RPC를 담당합니다.
 - `CursorAgentCLIAdapter`(`internal/agent/cursor_agent_cli_adapter.go`)는 현재 workspace 상태를 temp worktree에 동기화하고, 네이티브 CLI 또는 WSL distro 내부의 실제 binary를 직접 실행해 diff만 회수합니다.
 - `GET /v1/agent/runtime/adapter`는 현재 adapter 이름, capability, mode, workspace root, binary 경로 같은 smoke 진단 정보를 노출합니다.
-- `scripts/cursor_agent_smoke.ps1`는 temp repo를 만들고 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` smoke를 자동 수행합니다.
+- `scripts/cursor_agent_smoke.ps1`는 temp repo를 만들고 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` smoke를 자동 수행합니다. 현재 Windows + WSL + login 완료 환경에서 실제 smoke proof를 확보했습니다.
 
 ## 프로토콜 전략
 
 모든 제어 경로 메시지는 공통 Envelope를 사용합니다.
+
+- HTTP/P2P control handler는 message type별 timeout budget을 사용합니다. `PROMPT_SUBMIT`/`RUN_PROFILE`는 2분, `PATCH_APPLY`는 30초, 나머지는 5초입니다.
 
 - `sid`: session id
 - `rid`: request id

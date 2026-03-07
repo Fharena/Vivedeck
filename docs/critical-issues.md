@@ -191,6 +191,7 @@
 
 - 증상: WSL 안의 `cursor-agent` binary는 정상 탐지되지만 `PROMPT_SUBMIT` 시 `Authentication required. Please run 'agent login' first, or set CURSOR_API_KEY environment variable.` 오류로 종료됨
 - 영향: 실제 AI patch 생성 smoke는 코드 경로가 정상이더라도 Cursor 인증이 완료되기 전까지 진행되지 않음
+- 현재 상태: 2026-03-08 `cursor-agent login` 완료 후 active blocker는 해소되었고, 실제 smoke가 통과함
 - 즉시 대응:
   - `powershell -ExecutionPolicy Bypass -File .\scripts\cursor_agent_smoke.ps1`가 인증 미완료를 감지하면 정확한 login 명령을 안내하도록 보강
   - 현재 환경 기준 안내 명령: `wsl.exe -d Ubuntu -- /home/fharena/.local/bin/cursor-agent login`
@@ -202,6 +203,45 @@
 - 학습 포인트:
   - 외부 AI 도구의 "설치됨"과 "실행 가능함"은 다르며, 실제 운영 가능성은 인증 상태까지 포함해 확인해야 함
 
+### 2026-03-08 / CURSOR-CLI-003 / Workspace Trust 미설정 시 headless smoke 실패
+
+- 증상: 실제 `cursor-agent --print` 실행이 `Workspace Trust Required` 오류로 종료됨
+- 영향: 설치와 인증이 모두 정상이어도 headless patch 생성이 첫 요청에서 막힘
+- 즉시 대응:
+  - agent 기본 인자에 `--trust`를 자동 주입하고 `CURSOR_AGENT_TRUST_WORKSPACE=false`일 때만 비활성화
+  - smoke 스크립트도 동일한 기본값을 사용하도록 정렬
+- 영구 대응:
+  - adapter readiness 또는 smoke preflight에서 trust 요구 여부를 더 이르게 진단
+  - 팀 문서에 headless 실행 시 trust 정책을 명시
+- 학습 포인트:
+  - CLI 기반 자동화도 IDE의 workspace policy를 그대로 상속하므로, 비대화형 실행 옵션을 운영 기본값으로 설계해야 함
+
+### 2026-03-08 / CURSOR-CLI-004 / Free plan에서 named model 기본값이 실패
+
+- 증상: 실제 실행 시 `Named models unavailable Free plans can only use Auto.` 오류가 발생함
+- 영향: 설치/인증이 정상이더라도 모델 선택 기본값이 계정 플랜과 안 맞으면 smoke가 실패함
+- 즉시 대응:
+  - agent 기본 인자에 model이 없으면 `--model auto`를 자동 주입
+  - `CURSOR_AGENT_MODEL` 환경변수로 명시적 override 지원 유지
+- 영구 대응:
+  - adapter readiness에 모델 capability 또는 계정 제약 진단을 추가
+  - 운영 가이드에서 plan-dependent 기본값을 분리
+- 학습 포인트:
+  - 외부 AI 런타임의 모델 선택은 코드 기본값만으로 안전하지 않으며, 계정/플랜 제약을 함께 반영해야 함
+
+### 2026-03-08 / RUNTIME-003 / 고정 5초 control timeout이 실제 AI 실행을 조기 종료
+
+- 증상: 직접 `cursor-agent` 실행은 성공하지만 `/v1/agent/envelope` 경로에서는 약 5초 후 `cursor-agent execution failed`로 종료됨
+- 영향: mock/fixture에서는 드러나지 않던 실제 LLM 지연 때문에 `PROMPT_SUBMIT`과 `RUN_PROFILE`이 지속적으로 실패함
+- 즉시 대응:
+  - HTTP/P2P control handler에 message type별 timeout helper를 도입
+  - `PROMPT_SUBMIT`, `RUN_PROFILE`은 2분, `PATCH_APPLY`는 30초, 나머지는 5초로 분리
+  - timeout 정책 단위 테스트 추가
+- 영구 대응:
+  - timeout budget을 환경변수 또는 운영 설정으로 외부화
+  - runtime metrics에 handler latency/timeout 비율을 추가해 조기 경고 가능하게 함
+- 학습 포인트:
+  - fixture가 빠르게 응답한다고 해서 운영 timeout budget이 충분한 것은 아니며, 실제 AI latency를 기준으로 제어면 budget을 따로 설계해야 함
 ## 해결 방식 학습 체크리스트
 
 1. 문제 재현 명령을 문서화했는가?

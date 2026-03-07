@@ -274,6 +274,16 @@ function New-Envelope {
     }
 }
 
+function Get-FreeLoopbackUrl {
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    try {
+        $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+    } finally {
+        $listener.Stop()
+    }
+    return "http://127.0.0.1:$port"
+}
 function Wait-AgentReady {
     param(
         [Parameter(Mandatory = $true)][string]$HealthUrl,
@@ -294,7 +304,7 @@ function Wait-AgentReady {
                 }
                 throw "agent process exited before health check succeeded. stderr: $stderr"
             }
-            Start-Sleep -Milliseconds 250
+            Start-Sleep -Milliseconds 500
         }
     }
 
@@ -304,6 +314,10 @@ function Wait-AgentReady {
 $repoRootResolved = (Resolve-Path $RepoRoot).Path
 $goCommand = Resolve-RequiredCommand -Name 'go' -Hint 'Go 1.23+가 필요합니다.'
 $gitCommand = Resolve-RequiredCommand -Name 'git' -Hint 'Git이 필요합니다.'
+
+if (-not $PSBoundParameters.ContainsKey('AgentBaseUrl')) {
+    $AgentBaseUrl = Get-FreeLoopbackUrl
+}
 
 if ([string]::IsNullOrWhiteSpace($CursorAgentBin) -and -not [string]::IsNullOrWhiteSpace($env:CURSOR_AGENT_BIN)) {
     $CursorAgentBin = $env:CURSOR_AGENT_BIN
@@ -340,7 +354,7 @@ try {
     & $gitCommand.Source init | Out-Null
     & $gitCommand.Source config user.name 'VibeDeck Smoke' | Out-Null
     & $gitCommand.Source config user.email 'vibedeck-smoke@example.local' | Out-Null
-    [System.IO.File]::WriteAllText((Join-Path $workspaceRoot 'notes.txt'), "base`n", [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText((Join-Path $workspaceRoot 'notes.txt'), "base", [System.Text.UTF8Encoding]::new($false))
     & $gitCommand.Source add -A | Out-Null
     & $gitCommand.Source commit -m 'base' | Out-Null
 } finally {
@@ -361,6 +375,8 @@ $scriptContent = @(
     ('set AGENT_ADDR={0}' -f $listenAddress),
     'set WORKSPACE_ADAPTER_MODE=cursor_agent_cli',
     ('set CURSOR_AGENT_BIN={0}' -f $cursorAgentInvocation.Binary),
+    'set CURSOR_AGENT_TRUST_WORKSPACE=true',
+    'set CURSOR_AGENT_MODEL=auto',
     ('set CURSOR_AGENT_USE_WSL={0}' -f ($(if ($cursorAgentInvocation.UseWsl) { 'true' } else { 'false' }))),
     ('set CURSOR_AGENT_WSL_DISTRO={0}' -f $cursorAgentInvocation.WslDistro),
     ('set CURSOR_AGENT_WORKSPACE_ROOT={0}' -f $workspaceRoot),
@@ -386,7 +402,7 @@ try {
     $sid = 'sid-smoke'
     try {
         $promptResponse = Invoke-AgentJson -Method POST -Uri ($AgentBaseUrl.TrimEnd('/') + '/v1/agent/envelope') -Body (New-Envelope -Sid $sid -Rid 'rid-prompt-1' -Seq 1 -Type 'PROMPT_SUBMIT' -Payload @{
-            prompt = 'Append the line "smoke-agent" to notes.txt only. Do not modify any other files.'
+            prompt = 'Modify only notes.txt. Make the final contents exactly two lines: "base" and "smoke-agent". Do not modify any other files or add explanations.'
             template = 'smoke'
             contextOptions = @{
                 includeActiveFile = $false
@@ -424,6 +440,15 @@ try {
         throw 'jobId missing from PROMPT_ACK'
     }
 
+    $patchFiles = @($patchReady.payload.files)
+    if ($patchFiles.Count -ne 1 -or $patchFiles[0].path -ne 'notes.txt') {
+        throw "unexpected patch files: $(($patchFiles | ConvertTo-Json -Depth 6 -Compress))"
+    }
+    $patchDiff = @($patchFiles[0].hunks | ForEach-Object { $_.diff }) -join "`n"
+    if ($patchDiff -notmatch 'smoke-agent') {
+        throw "smoke patch does not contain target change: $patchDiff"
+    }
+
     $applyResponse = Invoke-AgentJson -Method POST -Uri ($AgentBaseUrl.TrimEnd('/') + '/v1/agent/envelope') -Body (New-Envelope -Sid $sid -Rid 'rid-apply-1' -Seq 2 -Type 'PATCH_APPLY' -Payload @{
         jobId = $jobId
         mode = 'all'
@@ -449,8 +474,9 @@ try {
     }
 
     $notesContent = Get-Content -Path (Join-Path $workspaceRoot 'notes.txt') -Raw
-    if ($notesContent -notmatch 'smoke-agent') {
-        throw "smoke change not found in notes.txt: $notesContent"
+    $normalizedNotes = (($notesContent -replace "`r`n?", "`n")).TrimEnd("`n")
+    if ($normalizedNotes -ne "base`nsmoke-agent") {
+        throw "unexpected notes.txt content: $notesContent"
     }
 
     [PSCustomObject]@{
@@ -471,16 +497,24 @@ try {
         Stop-Process -Id $agentProcess.Id -Force
         $agentProcess.WaitForExit()
     }
+    if ($agentProcess) {
+        try {
+            $agentProcess.Dispose()
+        } catch {
+        }
+        $agentProcess = $null
+        Start-Sleep -Milliseconds 500
+    }
     if (-not $KeepTempRoot -and (Test-Path $tempRoot)) {
-        for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        for ($attempt = 0; $attempt -lt 10; $attempt++) {
             try {
                 Remove-Item -Path $tempRoot -Recurse -Force -ErrorAction Stop
                 break
             } catch {
-                if ($attempt -eq 2) {
+                if ($attempt -eq 9) {
                     Write-Warning "temp root cleanup skipped: $tempRoot / $($_.Exception.Message)"
                 } else {
-                    Start-Sleep -Milliseconds 250
+                    Start-Sleep -Milliseconds 500
                 }
             }
         }

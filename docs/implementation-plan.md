@@ -129,12 +129,15 @@
 - adapter 상태 endpoint(`GET /v1/agent/runtime/adapter`)
 - temp repo 기준 실제 smoke 스크립트(`scripts/cursor_agent_smoke.ps1`)
 - Windows WSL distro/binary 자동 탐지 + direct exec smoke 지원
+- headless `cursor-agent` 기본 `--trust`, `--model auto` 주입
+- 실제 login 완료 환경에서 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` smoke proof 확보
+- 실제 LLM 지연을 반영한 control envelope timeout 분리(`PROMPT_SUBMIT`/`RUN_PROFILE`: 2분, `PATCH_APPLY`: 30초)
 
 ## 다음 작업 우선순위
 
-1. `cursor-agent` 인증이 완료된 환경에서 smoke 스크립트를 재실행해 첫 실제 patch/apply proof 확보
-2. extension host smoke/E2E 자동화
-3. ignored/generated 파일 sync 정책과 운영 메트릭 외부 대시보드 연동
+1. extension host smoke/E2E 자동화
+2. ignored/generated 파일 sync 정책과 운영 메트릭 외부 대시보드 연동
+3. 실제 사용 패키징/온보딩 가이드 정리
 
 ## 커밋 전략
 
@@ -167,3 +170,5 @@
 25. `feat(agent): add cursor-agent cli worktree adapter`
 26. `feat(ops): add cursor-agent smoke diagnostics`
 27. `feat(agent): support WSL cursor-agent smoke on Windows`
+28. `feat(agent): align control timeouts with real cursor-agent latency`
+29. `test(ops): prove real cursor-agent smoke after login`
