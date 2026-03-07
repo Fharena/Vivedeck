@@ -47,6 +47,19 @@
 - 학습 포인트:
   - 권한/소유권 이슈는 코드와 무관하게 전체 개발 사이클을 멈추므로, 재현 즉시 "즉시 대응 + 영구 대응"을 분리해 기록해야 함
 
+### 2026-03-07 / TOOLCHAIN-005 / flutter_webrtc 도입 후 native assets 훅 재발
+
+- 증상: `flutter_webrtc` 추가 후 `flutter test`가 다시 `objective_c` 훅에서 `'C:\Users\99yoo\OneDrive\바탕' is not recognized`로 실패
+- 영향: 모바일 WebRTC 기능 추가 직후 기본 테스트 루프가 다시 중단됨
+- 즉시 대응:
+  - 경로 공백/한글 우회용 스크립트 `mobile/flutter_app/scripts/flutter_test_safe.ps1` 추가
+  - 스크립트에서 `subst V:` 임시 매핑 후 `flutter test` 실행, 완료 후 자동 해제
+- 영구 대응:
+  - CI/로컬 공통으로 공백 없는 작업 경로 표준화
+  - native assets 훅을 사용하는 의존성 도입 시 사전 경로 호환성 체크를 PR 체크리스트에 추가
+- 학습 포인트:
+  - 기능 의존성 추가는 런타임 기능뿐 아니라 테스트 실행 파이프라인(native assets 포함) 영향까지 함께 검증해야 함
+
 ## 런타임 리스크(설계)
 
 ### 2026-03-06 / RUNTIME-001 / ACK 만료 오탐 가능성
@@ -146,6 +159,7 @@
 - 영구 해결 방식:
 - 추가한 회귀 테스트:
 - 학습 포인트:
+
 
 
 

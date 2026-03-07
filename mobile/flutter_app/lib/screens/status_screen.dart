@@ -99,7 +99,8 @@ class _StatusScreenState extends State<StatusScreen> {
                                   widget.controller.updateAgentBaseUrl(
                                       _agentUrlController.text);
                                   widget.controller.updateSignalingBaseUrl(
-                                      _signalingUrlController.text);
+                                    _signalingUrlController.text,
+                                  );
                                   await widget.controller.refreshStatus();
                                 },
                           icon: const Icon(Icons.save_outlined),
@@ -130,20 +131,27 @@ class _StatusScreenState extends State<StatusScreen> {
                     children: [
                       _MetricPill(label: 'Current', value: state),
                       _MetricPill(
-                          label: 'P2P Active',
-                          value:
-                              widget.controller.p2pActive ? 'true' : 'false'),
+                        label: 'P2P Active',
+                        value: widget.controller.p2pActive ? 'true' : 'false',
+                      ),
                       _MetricPill(
-                          label: 'Pending ACK',
-                          value: '${widget.controller.pendingAckCount}'),
+                        label: 'Pending ACK',
+                        value: '${widget.controller.pendingAckCount}',
+                      ),
+                      _MetricPill(
+                        label: 'Control Path',
+                        value: widget.controller.controlPath,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 10),
                   Text(
-                      'sessionId: ${widget.controller.sessionId.isEmpty ? '-' : widget.controller.sessionId}'),
+                    'sessionId: ${widget.controller.sessionId.isEmpty ? '-' : widget.controller.sessionId}',
+                  ),
                   const SizedBox(height: 4),
                   Text(
-                      'pairingCode: ${widget.controller.pairingCode.isEmpty ? '-' : widget.controller.pairingCode}'),
+                    'pairingCode: ${widget.controller.pairingCode.isEmpty ? '-' : widget.controller.pairingCode}',
+                  ),
                   if (widget.controller.activity.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Text('작업중: ${widget.controller.activity}'),
@@ -213,7 +221,7 @@ class _StatusScreenState extends State<StatusScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Direct Signaling (WebRTC 스켈레톤)',
+                    'Direct Signaling + WebRTC',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 8),
@@ -263,11 +271,24 @@ class _StatusScreenState extends State<StatusScreen> {
                     runSpacing: 8,
                     children: [
                       _MetricPill(
-                          label: 'Direct State',
-                          value: widget.controller.directSignalingState),
+                        label: 'Direct State',
+                        value: widget.controller.directSignalingState,
+                      ),
                       _MetricPill(
-                        label: 'Direct Connected',
+                        label: 'WS Connected',
                         value: widget.controller.directSignalingConnected
+                            ? 'true'
+                            : 'false',
+                      ),
+                      _MetricPill(
+                        label: 'Peer Connected',
+                        value: widget.controller.directPeerConnected
+                            ? 'true'
+                            : 'false',
+                      ),
+                      _MetricPill(
+                        label: 'Control Ready',
+                        value: widget.controller.directControlReady
                             ? 'true'
                             : 'false',
                       ),
@@ -283,17 +304,17 @@ class _StatusScreenState extends State<StatusScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '현재 단계는 signaling 연결/수신 로그 확인용이며, 실제 WebRTC peer 연결은 다음 단계에서 연동됩니다.',
+                    'Control Ready=true 이면 Prompt/Review 액션이 HTTP 대신 DataChannel(DIRECT) 경로를 우선 사용합니다.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 8),
-                  Text('최근 signaling 로그',
+                  Text('최근 direct 로그',
                       style: Theme.of(context).textTheme.titleSmall),
                   const SizedBox(height: 6),
                   if (widget.controller.directSignalLogs.isEmpty)
                     const Text('로그 없음')
                   else
-                    ...widget.controller.directSignalLogs.take(8).map((log) =>
+                    ...widget.controller.directSignalLogs.take(10).map((log) =>
                         Text(log,
                             style: Theme.of(context).textTheme.bodySmall)),
                 ],
@@ -306,8 +327,10 @@ class _StatusScreenState extends State<StatusScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Runtime Timeline',
-                        style: Theme.of(context).textTheme.titleMedium),
+                    Text(
+                      'Runtime Timeline',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                     const SizedBox(height: 8),
                     if (widget.controller.runtimeHistory.isEmpty)
                       const Text('히스토리가 없습니다.')
@@ -354,11 +377,12 @@ class _MetricPill extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label, style: Theme.of(context).textTheme.bodySmall),
-          Text(value,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            value,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
         ],
       ),
     );
