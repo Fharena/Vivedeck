@@ -55,7 +55,7 @@ TypeScript 브리지 패키지 구성:
 - `createCursorExtensionRuntime`이 extension activation 시 command registration과 last-run metadata 추적을 담당
 - `serveCursorExtensionBridge`, `serveStdioBridge`, `serveSocketBridge`가 newline-delimited JSON RPC over stdio/TCP 서버를 구성
 - extensions/vibedeck-bridge는 mock/command mode, 설정 기반 command ID 매핑, command registry readiness 검증, agent env 복사 명령을 제공하는 설치 가능한 extension package입니다.
-- CursorAgentCLIAdapter는 공식 cursor-agent CLI를 임시 git worktree snapshot에서 실행하고, 생성된 diff를 PatchReadyPayload로 파싱한 뒤 실제 workspace에는 review 승인 후 git apply로만 반영합니다.
+- CursorAgentCLIAdapter는 네이티브 cursor-agent 또는 Windows WSL distro 안의 `~/.local/bin/cursor-agent`/`agent`를 감지해 임시 git worktree snapshot에서 실행하고, 생성된 diff를 PatchReadyPayload로 파싱한 뒤 실제 workspace에는 review 승인 후 git apply로만 반영합니다.
 
 ## 에이전트-어댑터 연결
 
@@ -64,7 +64,7 @@ TypeScript 브리지 패키지 구성:
 - `CURSOR_BRIDGE_TCP_ADDR`가 설정되면 agent는 child process 대신 기존 localhost TCP bridge에 직접 연결합니다.
 - `WORKSPACE_ADAPTER_MODE=cursor_agent_cli`가 설정되면 bridge 대신 `CursorAgentCLIAdapter`를 사용합니다.
 - `CursorBridgeAdapter`(`internal/agent/cursor_bridge_adapter.go`)가 `name`, `capabilities`, `getContext`, `submitTask`, `getPatch`, `applyPatch`, `runProfile`, `getRunResult`, `openLocation` RPC를 담당합니다.
-- `CursorAgentCLIAdapter`(`internal/agent/cursor_agent_cli_adapter.go`)는 현재 workspace 상태를 temp worktree에 동기화하고, `cursor-agent --print --output-format json` 실행 후 diff만 회수합니다.
+- `CursorAgentCLIAdapter`(`internal/agent/cursor_agent_cli_adapter.go`)는 현재 workspace 상태를 temp worktree에 동기화하고, 네이티브 CLI 또는 WSL distro 내부의 실제 binary를 직접 실행해 diff만 회수합니다.
 - `GET /v1/agent/runtime/adapter`는 현재 adapter 이름, capability, mode, workspace root, binary 경로 같은 smoke 진단 정보를 노출합니다.
 - `scripts/cursor_agent_smoke.ps1`는 temp repo를 만들고 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` smoke를 자동 수행합니다.
 

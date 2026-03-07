@@ -220,6 +220,26 @@ func TestCursorAgentCLIAdapterRunProfileAndContext(t *testing.T) {
 	}
 }
 
+func TestBuildWSLCursorAgentArgs(t *testing.T) {
+	args := buildWSLCursorAgentArgs("Ubuntu", "/home/test/.local/bin/cursor-agent", []string{"--print", "--output-format", "json"})
+	want := []string{
+		"-d",
+		"Ubuntu",
+		"--",
+		"/home/test/.local/bin/cursor-agent",
+		"--print",
+		"--output-format",
+		"json",
+	}
+	if len(args) != len(want) {
+		t.Fatalf("expected %d args, got %d (%v)", len(want), len(args), args)
+	}
+	for i, expected := range want {
+		if args[i] != expected {
+			t.Fatalf("arg %d: want %q, got %q", i, expected, args[i])
+		}
+	}
+}
 func newTestCursorAgentCLIAdapter(t *testing.T, repo, mode, targetFile string) *CursorAgentCLIAdapter {
 	t.Helper()
 	cfg := CursorAgentCLIConfig{
