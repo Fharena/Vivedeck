@@ -24,6 +24,7 @@ Prompt/Review/Status 3개 화면을 agent HTTP API에 연결한 모바일 앱입
 ```bash
 # 시스템 전역 또는 로컬 SDK 경로 중 하나 사용
 flutter --version
+# 또는 저장소 루트 기준
 .\tools\flutter\bin\flutter.bat --version
 ```
 
@@ -48,3 +49,4 @@ cd mobile/flutter_app
 - Signaling Base URL: `http://127.0.0.1:8081`
 
 에뮬레이터 환경에서는 `10.0.2.2` 등 환경별 호스트를 사용하세요.
+
