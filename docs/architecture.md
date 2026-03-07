@@ -13,7 +13,7 @@
 - `PromptScreen`: 프롬프트 입력, 템플릿 선택, context 옵션 토글
 - `ReviewScreen`: 파일/헝크 목록 검토와 전체/선택 적용 액션
 - `StatusScreen`: 연결 상태, pending ACK, 히스토리 표시
-- 현재 단계는 mock state 기반 UI이며, 다음 단계에서 `/v1/agent/*` API 연동 예정
+- `StatusScreen`에서 direct signaling(pairing claim + WS 연결) 스켈레톤 제어/로그 확인 가능
 
 ## Flutter API 연동 레이어 (`mobile/flutter_app/lib/state/app_controller.dart`)
 
@@ -24,6 +24,10 @@
   2. 응답 envelope(`responses[]`) 파싱
   3. non-ACK 응답 RID에 대해 `CMD_ACK` 자동 회신
 - 상태 화면은 runtime/p2p/ack 조회 API를 주기적 갱신으로 표시
+- direct signaling 레이어:
+  - `SignalingApi`(`mobile/flutter_app/lib/services/signaling_api.dart`)가 pairing claim + WS URI 생성 담당
+  - `MobileDirectSignalingSession`(`mobile/flutter_app/lib/services/mobile_direct_signaling_session.dart`)가 WS 연결/이벤트/수신 envelope 스트림 관리
+  - 현재는 `SIGNAL_OFFER`/`SIGNAL_ICE` 수신 로깅까지 구현되어 있으며, 실제 모바일 peer 협상은 후속 단계에서 연동
 
 ## 핵심 인터페이스
 
@@ -183,6 +187,7 @@
 - 클레임 성공 후 디바이스 키 발급
 - MVP에서 HIGH 권한 동작은 기본 비활성화
 - 서버에는 최소 세션 메타데이터만 저장
+
 
 
 

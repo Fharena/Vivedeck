@@ -103,11 +103,16 @@
 - Flutter 화면과 agent API 연동
   - Prompt/Review/Status에서 `/v1/agent/*` 엔드포인트 호출
   - non-ACK envelope 응답에 대한 `CMD_ACK` 자동 회신
+- Flutter direct signaling 스켈레톤
+  - `pairing claim -> signaling ws 연결` 최소 흐름 구현
+  - Status 화면에서 direct signaling 연결/종료, 상태, 최근 로그 확인 가능
+  - `SIGNAL_OFFER`/`SIGNAL_ICE` 수신 시점까지 검증(실제 peer 협상은 미연동)
 
 남은 작업:
 
 - Cursor 실제 Extension API 연동
-- 모바일(WebRTC 클라이언트) 실제 구현(Flutter, WebRTC direct) 및 상호운용 테스트 자동화
+- 모바일 WebRTC peer 연동(SDP/ICE 적용, DataChannel 연결)
+- 모바일↔에이전트 direct signaling + WebRTC 상호운용 테스트 자동화
 
 ## 다음 작업 우선순위
 
@@ -134,6 +139,8 @@
 12. `feat(mobile): flutter prompt/review/status baseline`
 13. `feat(mobile): flutter screen + agent api integration`
 14. `docs(ops): 크리티컬 이슈/트러블슈팅 학습 노트`
+15. `feat(mobile): direct signaling skeleton + status ui`
+
 
 
 
