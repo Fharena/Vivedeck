@@ -111,10 +111,21 @@
 
 - 없음(MVP 범위 기준 완료)
 
+## Post-MVP 진행
+
+완료된 항목:
+
+- Go agent external TCP bridge 연결 (`CURSOR_BRIDGE_TCP_ADDR`)
+- TypeScript localhost TCP bridge 서버(`serveSocketBridge`)
+- TCP fixture launcher(`npm run start:fixture:tcp`)
+- VS Code/Cursor localhost bridge extension package(`extensions/vibedeck-bridge`)
+- mock mode / command mode 설정 경로
+
 ## 다음 작업 우선순위
 
-1. 실제 Cursor extension host 실사용 배선/패키징
-2. 운영 메트릭 외부 대시보드 연동
+1. 실제 Cursor command ID / task API 매핑
+2. extension host smoke/e2e 자동화
+3. 운영 메트릭 외부 대시보드 연동
 
 ## 커밋 전략
 
@@ -142,3 +153,4 @@
 20. `feat(runtime): p2p control response ack retry backoff 추가`
 21. `test(mobile): add direct control integration coverage`
 22. `feat(runtime): add ack observability metrics`
+23. `feat(cursor-bridge): add localhost tcp extension bridge`

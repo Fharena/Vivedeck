@@ -1,7 +1,7 @@
 # Cursor Bridge (TypeScript)
 
 이 패키지는 VibeDeck PC Agent가 호출하는 `WorkspaceAdapter` 계약의 TypeScript 기준 구현입니다.
-Cursor extension host 안에서 contract를 올리는 runtime helper와, Go agent가 붙을 수 있는 stdio bridge 서버를 함께 제공합니다.
+Cursor/VS Code extension host 안에서 contract를 올리는 runtime helper와, Go agent가 붙을 수 있는 stdio/TCP bridge 서버를 함께 제공합니다.
 
 ## 포함 내용
 
@@ -13,7 +13,9 @@ Cursor extension host 안에서 contract를 올리는 runtime helper와, Go agen
 - VS Code/Cursor extension host 어댑터
 - extension activation용 runtime helper(`createCursorExtensionRuntime`, `serveCursorExtensionBridge`)
 - stdio bridge 프로토콜/서버
+- TCP socket bridge 서버(`serveSocketBridge`)
 - 로컬 bootstrap용 fixture bridge
+- 로컬 TCP fixture launcher(`npm run start:fixture:tcp`)
 
 ## 구현 원칙
 
@@ -21,7 +23,7 @@ Cursor extension host 안에서 contract를 올리는 runtime helper와, Go agen
 - 패치 데이터는 파일/헝크 구조로 정규화
 - 부분 적용 가능한 구조 유지
 - Cursor 명령 결과는 브리지에서 `WorkspaceAdapter` 계약으로 정규화
-- Go agent와 브리지 프로세스는 newline-delimited JSON RPC over stdio로 통신
+- Go agent와 브리지 프로세스는 newline-delimited JSON RPC over stdio 또는 localhost TCP로 통신
 
 ## extension host에서 쓰는 방식
 
@@ -45,13 +47,23 @@ export function activate() {
 - runtime helper는 `vibedeck.submitTask`, `vibedeck.getPatch`, `vibedeck.applyPatch`, `vibedeck.runProfile`, `vibedeck.getRunResult`를 등록합니다.
 - 기본값으로 `vibedeck.getWorkspaceMetadata`, `vibedeck.getLatestTerminalError`도 함께 등록해서 `CursorExtensionBridge`가 컨텍스트를 채울 수 있게 합니다.
 - `runProfile`/`getRunResult` 호출 결과를 바탕으로 마지막 실행 상태와 최근 에러를 메모리에 유지합니다.
+- 같은 프로세스에서 stdio bridge까지 바로 열어야 하면 `serveCursorExtensionBridge()`를 사용할 수 있습니다.
+- localhost TCP bridge가 필요하면 `serveSocketBridge()`로 외부 agent가 붙을 포트를 열 수 있습니다.
 
-같은 프로세스에서 stdio bridge까지 바로 열어야 하면 `serveCursorExtensionBridge()`를 사용할 수 있습니다.
+## agent child-process/TCP 연결
 
-## agent child-process 연결
+Go agent는 두 경로를 모두 지원합니다.
 
-Go agent와 stdio로 연결할 때는 `serveStdioBridge(adapter)`를 사용합니다.
-저장소 기본값은 `npm run start:fixture`로 실행되는 fixture bridge이며, 로컬 bootstrap과 프로토콜 검증에 사용됩니다.
+- 기본값: fixture child-process (`dist/fixtureBridgeMain.js`)
+- 외부 TCP bridge: `CURSOR_BRIDGE_TCP_ADDR=127.0.0.1:7797`
+
+TCP fixture smoke test는 다음으로 바로 띄울 수 있습니다.
+
+```bash
+npm install
+npm run build
+CURSOR_BRIDGE_TCP_PORT=7797 npm run start:fixture:tcp
+```
 
 ## 로컬 검증
 
@@ -60,17 +72,8 @@ npm install
 npm run check
 npm run build
 npm run start:fixture
+npm run start:fixture:tcp
 ```
 
 기본 open-location 동작은 `workspace.openTextDocument + window.showTextDocument`를 사용합니다.
 확장 쪽에서 별도 커맨드가 필요하면 `commands.openLocation`을 지정해 override 할 수 있습니다.
-
-## 현재 범위와 다음 단계
-
-- 이번 단계:
-  - extension activation용 runtime helper 추가
-  - command registration + run metadata 추적 추가
-  - 기존 `CursorExtensionBridge` 기본 command set 보강
-- 다음 단계:
-  - ACK 재전송/자동 복구(backoff) 정책 구현
-  - 모바일 direct 제어 경로와 실제 IDE 연동 통합 검증
