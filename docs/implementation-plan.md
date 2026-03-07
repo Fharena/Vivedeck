@@ -58,7 +58,7 @@
 
 ### Phase 4: 런타임 신뢰성 강화
 
-상태: `완료(베이스라인)`
+상태: `완료`
 
 산출물:
 
@@ -68,11 +68,13 @@
 - Agent P2P 오케스트레이터(`internal/agent/p2p_session.go`)
 - 모바일 상호운용 E2E 테스트(`internal/agent/p2p_session_test.go`)
 - Flutter direct signaling + WebRTC peer 제어 경로
+- P2P 제어 응답 ACK 재전송/backoff + 재연결 트리거
 
 완료 기준:
 
 - direct 경로에서 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` 기본 루프 동작
 - non-ACK 응답에 대한 `CMD_ACK` 자동 회신 및 pending ACK 소거 확인 가능
+- P2P 경로에서 ACK 미수신 시 backoff 재전송 후 최대 재시도 초과 시 `reconnecting` 전이 가능
 
 ### Phase 5: 어댑터/시그널링 고도화
 
@@ -104,15 +106,13 @@
 
 남은 작업:
 
-- ACK 재전송/자동 복구(backoff) 정책 구현
 - 모바일↔에이전트 direct 제어 경로 상호운용 자동화 테스트(Flutter integration)
 - 운영 메트릭/관측성(ACK RTT, queue depth) 보강
 
 ## 다음 작업 우선순위
 
-1. ACK 재전송/자동 복구(backoff) 정책 구현
-2. 모바일↔에이전트 direct 제어 경로 통합 시나리오 자동화(E2E/Integration)
-3. 운영 메트릭/관측성(ACK RTT, queue depth) 보강
+1. 모바일↔에이전트 direct 제어 경로 통합 시나리오 자동화(E2E/Integration)
+2. 운영 메트릭/관측성(ACK RTT, queue depth) 보강
 
 ## 커밋 전략
 
@@ -137,3 +137,4 @@
 17. `feat(cursor-bridge): add cursor extension host bridge`
 18. `feat(agent): connect cursor bridge runtime over stdio`
 19. `feat(cursor-bridge): add cursor extension runtime helper`
+20. `feat(runtime): p2p control response ack retry backoff 추가`

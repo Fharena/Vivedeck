@@ -26,8 +26,14 @@ func newSignalingTestServer(t *testing.T) *httptest.Server {
 }
 
 func newP2PTestManager(signalingBaseURL string) (*P2PSessionManager, *runtime.AckTracker) {
+	return newP2PTestManagerWithAckTracker(signalingBaseURL, nil)
+}
+
+func newP2PTestManagerWithAckTracker(signalingBaseURL string, ackTracker *runtime.AckTracker) (*P2PSessionManager, *runtime.AckTracker) {
 	stateManager := runtime.NewStateManager(runtime.DefaultManagerConfig())
-	ackTracker := runtime.NewAckTracker(2 * time.Second)
+	if ackTracker == nil {
+		ackTracker = runtime.NewAckTracker(2 * time.Second)
+	}
 	orchestrator := NewOrchestrator(NewMockAdapter(), DefaultRunProfiles())
 	manager := NewP2PSessionManager(stateManager, ackTracker, orchestrator, signalingBaseURL)
 	return manager, ackTracker
@@ -281,6 +287,134 @@ func TestP2PSessionManagerRoutesControlEnvelopeOverDataChannel(t *testing.T) {
 	t.Fatalf("acked rid should be removed from pending: %s", targetRID)
 }
 
+func TestP2PSessionManagerRetriesAckableResponsesOverDataChannel(t *testing.T) {
+	ts := newSignalingTestServer(t)
+	defer ts.Close()
+
+	ackTracker := runtime.NewAckTrackerWithConfig(runtime.AckTrackerConfig{
+		Timeout:           150 * time.Millisecond,
+		MaxRetries:        1,
+		BackoffMultiplier: 2,
+	})
+	manager, ackTracker := newP2PTestManagerWithAckTracker(ts.URL, ackTracker)
+
+	status, err := manager.Start(context.Background(), StartP2PRequest{})
+	if err != nil {
+		t.Fatalf("start p2p session: %v", err)
+	}
+	defer func() { _, _ = manager.Stop() }()
+
+	mobileSessionID, mobileKey, err := claimPairing(ts.URL, status.PairingCode)
+	if err != nil {
+		t.Fatalf("claim pairing: %v", err)
+	}
+	if mobileSessionID != status.SessionID {
+		t.Fatalf("session id mismatch: claimed=%s status=%s", mobileSessionID, status.SessionID)
+	}
+
+	mobileConn, err := dialMobileWS(ts.URL, status.SessionID, mobileKey)
+	if err != nil {
+		t.Fatalf("dial mobile ws: %v", err)
+	}
+	defer mobileConn.Close()
+
+	mobilePeer, err := webrtc.NewPeer(webrtc.DefaultConfig(webrtc.SideMobile))
+	if err != nil {
+		t.Fatalf("new mobile peer: %v", err)
+	}
+	defer func() { _ = mobilePeer.Close() }()
+
+	mobileBridge, err := webrtc.NewSignalBridge(status.SessionID, webrtc.SideMobile, mobilePeer)
+	if err != nil {
+		t.Fatalf("new mobile bridge: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go mobileBridge.Run(ctx)
+	go mobileReadLoop(ctx, t, mobileConn, mobileBridge)
+	go mobileWriteLoop(ctx, t, mobileConn, mobileBridge)
+
+	waitForManagerState(t, manager, runtime.StateP2PConnected, 12*time.Second)
+	if err := mobilePeer.WaitDataChannelOpen(5 * time.Second); err != nil {
+		t.Fatalf("mobile data channel open: %v", err)
+	}
+
+	submitEnv, err := protocol.NewEnvelope(status.SessionID, "rid-submit-retry", 1, protocol.TypePromptSubmit, protocol.PromptSubmitPayload{
+		Prompt:         "Fix auth middleware",
+		ContextOptions: protocol.ContextOptions{},
+	})
+	if err != nil {
+		t.Fatalf("build submit envelope: %v", err)
+	}
+	sendEnvelopeToPeer(t, mobilePeer, submitEnv)
+
+	responses := collectResponsesByType(
+		t,
+		mobilePeer,
+		map[protocol.MessageType]int{
+			protocol.TypeCmdAck:     1,
+			protocol.TypePromptAck:  1,
+			protocol.TypePatchReady: 1,
+		},
+		8*time.Second,
+	)
+
+	promptAckEnv, ok := firstResponseByType(responses, protocol.TypePromptAck)
+	if !ok {
+		t.Fatalf("PROMPT_ACK response not found")
+	}
+	patchReadyEnv, ok := firstResponseByType(responses, protocol.TypePatchReady)
+	if !ok {
+		t.Fatalf("PATCH_READY response not found")
+	}
+
+	waitForPendingAckCount(t, ackTracker, 2, 2*time.Second)
+
+	snapshot := ackTracker.Snapshot()
+	foundPatchReady := false
+	for _, pending := range snapshot {
+		if pending.RID != patchReadyEnv.RID {
+			continue
+		}
+		foundPatchReady = true
+		if pending.Transport != runtime.AckTransportP2P {
+			t.Fatalf("expected p2p transport, got %s", pending.Transport)
+		}
+		if !pending.RetryEnabled {
+			t.Fatalf("expected retry enabled pending ack")
+		}
+		if pending.RetryCount != 0 {
+			t.Fatalf("expected initial retry count 0, got %d", pending.RetryCount)
+		}
+	}
+	if !foundPatchReady {
+		t.Fatalf("patch ready pending ack not found")
+	}
+
+	deadline := time.After(4 * time.Second)
+	for {
+		select {
+		case raw := <-mobilePeer.Messages():
+			var response protocol.Envelope
+			if err := json.Unmarshal(raw, &response); err != nil {
+				t.Fatalf("decode retry response envelope: %v", err)
+			}
+			if response.Type == protocol.TypePatchReady && response.RID == patchReadyEnv.RID {
+				goto ACK_AND_VERIFY
+			}
+		case <-deadline:
+			t.Fatalf("timeout waiting patch ready retry over data channel")
+		}
+	}
+
+ACK_AND_VERIFY:
+	sendCmdAckToPeer(t, mobilePeer, status.SessionID, promptAckEnv.RID, 300)
+	sendCmdAckToPeer(t, mobilePeer, status.SessionID, patchReadyEnv.RID, 301)
+	waitAckRemoved(t, ackTracker, promptAckEnv.RID, 4*time.Second)
+	waitAckRemoved(t, ackTracker, patchReadyEnv.RID, 4*time.Second)
+}
 func TestP2PSessionManagerMobileControlFlowE2E(t *testing.T) {
 	ts := newSignalingTestServer(t)
 	defer ts.Close()
