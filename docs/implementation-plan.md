@@ -89,6 +89,10 @@
   - `CursorBridgeAdapter`로 child-process bridge 호출 추가(`internal/agent/cursor_bridge_adapter.go`)
   - `cmd/agent` 기본 런타임을 external bridge 경로로 전환
   - 로컬 bootstrap용 fixture bridge(`adapters/cursor-bridge/src/fixtureBridgeMain.ts`) 추가
+- Cursor extension activation runtime helper 추가
+  - `createCursorExtensionRuntime`로 command registration + run metadata 추적 추가
+  - `serveCursorExtensionBridge`로 extension host에서 stdio bridge 부트스트랩 가능
+  - `defaultCursorBridgeCommands`에 workspace metadata / latest error command 기본값 추가
 - 시그널링 기본 offer/answer/ice 라우팅
 - 시그널링 방향성 검증(PC: OFFER/ICE, Mobile: ANSWER/ICE)
 - 상대 미접속 시 시그널 메시지 큐잉/재전달
@@ -100,17 +104,15 @@
 
 남은 작업:
 
-- Cursor extension 프로세스에서 `createVSCodeCursorHost` 기반 런처 추가
 - ACK 재전송/자동 복구(backoff) 정책 구현
 - 모바일↔에이전트 direct 제어 경로 상호운용 자동화 테스트(Flutter integration)
 - 운영 메트릭/관측성(ACK RTT, queue depth) 보강
 
 ## 다음 작업 우선순위
 
-1. Cursor extension 프로세스에서 `createVSCodeCursorHost` 기반 런처 추가
-2. ACK 재전송/자동 복구(backoff) 정책 구현
-3. 모바일↔에이전트 direct 제어 경로 통합 시나리오 자동화(E2E/Integration)
-4. 운영 메트릭/관측성(ACK RTT, queue depth) 보강
+1. ACK 재전송/자동 복구(backoff) 정책 구현
+2. 모바일↔에이전트 direct 제어 경로 통합 시나리오 자동화(E2E/Integration)
+3. 운영 메트릭/관측성(ACK RTT, queue depth) 보강
 
 ## 커밋 전략
 
@@ -134,3 +136,4 @@
 16. `feat(mobile): flutter webrtc peer + direct control path integration`
 17. `feat(cursor-bridge): add cursor extension host bridge`
 18. `feat(agent): connect cursor bridge runtime over stdio`
+19. `feat(cursor-bridge): add cursor extension runtime helper`
