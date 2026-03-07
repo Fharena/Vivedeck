@@ -120,11 +120,14 @@
 - TCP fixture launcher(`npm run start:fixture:tcp`)
 - VS Code/Cursor localhost bridge extension package(`extensions/vibedeck-bridge`)
 - mock mode / command mode 설정 경로
+- command mode 시작 전 registry 검증(`vibedeckBridge.validateCommands`)
+- agent 연결용 PowerShell env 복사 명령(`vibedeckBridge.copyAgentEnv`)
+- status bar / 상태 메시지에 mode, agent env, optional command 누락 경고 반영
 
 ## 다음 작업 우선순위
 
-1. 실제 Cursor command ID / task API 매핑
-2. extension host smoke/e2e 자동화
+1. 실제 Cursor task/patch/run command 매핑 또는 대체 adapter 경로 설계
+2. extension host smoke/E2E 자동화
 3. 운영 메트릭 외부 대시보드 연동
 
 ## 커밋 전략
@@ -154,3 +157,4 @@
 21. `test(mobile): add direct control integration coverage`
 22. `feat(runtime): add ack observability metrics`
 23. `feat(cursor-bridge): add localhost tcp extension bridge`
+24. `feat(extension): add bridge command readiness diagnostics`

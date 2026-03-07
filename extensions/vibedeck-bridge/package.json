@@ -17,7 +17,9 @@
     "onStartupFinished",
     "onCommand:vibedeckBridge.startServer",
     "onCommand:vibedeckBridge.stopServer",
-    "onCommand:vibedeckBridge.showStatus"
+    "onCommand:vibedeckBridge.showStatus",
+    "onCommand:vibedeckBridge.validateCommands",
+    "onCommand:vibedeckBridge.copyAgentEnv"
   ],
   "contributes": {
     "commands": [
@@ -32,6 +34,14 @@
       {
         "command": "vibedeckBridge.showStatus",
         "title": "VibeDeck: Show Bridge Status"
+      },
+      {
+        "command": "vibedeckBridge.validateCommands",
+        "title": "VibeDeck: Validate Commands"
+      },
+      {
+        "command": "vibedeckBridge.copyAgentEnv",
+        "title": "VibeDeck: Copy Agent Env"
       }
     ],
     "configuration": {
@@ -49,7 +59,7 @@
             "mock"
           ],
           "default": "command",
-          "description": "command 모드는 설정된 command ID를 호출하고, mock 모드는 저장소 fixture 로직으로 smoke test를 제공합니다."
+          "description": "command 모드는 설정된 command ID를 호출하고, 시작 전에 command registry를 검증합니다. mock 모드는 저장소 fixture 로직으로 smoke test를 제공합니다."
         },
         "vibedeckBridge.tcpHost": {
           "type": "string",
@@ -66,27 +76,27 @@
         "vibedeckBridge.commands.submitTask": {
           "type": "string",
           "default": "vibedeck.submitTask",
-          "description": "submitTask를 처리할 command ID"
+          "description": "submitTask를 처리할 required command ID"
         },
         "vibedeckBridge.commands.getPatch": {
           "type": "string",
           "default": "vibedeck.getPatch",
-          "description": "getPatch를 처리할 command ID"
+          "description": "getPatch를 처리할 required command ID"
         },
         "vibedeckBridge.commands.applyPatch": {
           "type": "string",
           "default": "vibedeck.applyPatch",
-          "description": "applyPatch를 처리할 command ID"
+          "description": "applyPatch를 처리할 required command ID"
         },
         "vibedeckBridge.commands.runProfile": {
           "type": "string",
           "default": "vibedeck.runProfile",
-          "description": "runProfile을 처리할 command ID"
+          "description": "runProfile을 처리할 required command ID"
         },
         "vibedeckBridge.commands.getRunResult": {
           "type": "string",
           "default": "vibedeck.getRunResult",
-          "description": "getRunResult를 처리할 command ID"
+          "description": "getRunResult를 처리할 required command ID"
         },
         "vibedeckBridge.commands.openLocation": {
           "type": "string",
@@ -96,12 +106,12 @@
         "vibedeckBridge.commands.getWorkspaceMetadata": {
           "type": "string",
           "default": "vibedeck.getWorkspaceMetadata",
-          "description": "workspace metadata를 읽을 command ID"
+          "description": "workspace metadata를 읽을 optional command ID"
         },
         "vibedeckBridge.commands.getLatestTerminalError": {
           "type": "string",
           "default": "vibedeck.getLatestTerminalError",
-          "description": "latest terminal error를 읽을 command ID"
+          "description": "latest terminal error를 읽을 optional command ID"
         }
       }
     }
