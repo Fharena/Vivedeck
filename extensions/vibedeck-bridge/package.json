@@ -201,7 +201,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
-    "smoke:provider": "npm run build && node ./scripts/command_provider_smoke.mjs"
+    "smoke:provider": "npm run build && node ./scripts/command_provider_smoke.mjs",
+    "smoke:extension": "npm run build && node ./scripts/extension_runtime_smoke.mjs"
   },
   "dependencies": {
     "@vibedeck/cursor-bridge": "file:../../adapters/cursor-bridge"

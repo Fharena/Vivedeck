@@ -47,7 +47,7 @@ Windows에서는 종료 직후 `agent.exe` 잠금으로 temp root cleanup warnin
 ### Agent 연결
 
 - `VibeDeck: Copy Agent Env` 명령은 현재 bridge 주소 기준으로 PowerShell 환경변수 문자열을 클립보드에 복사합니다.
-- 복사된 값을 agent 실행 터미널에 붙여 넣으면 TCP bridge로 직접 연결됩니다.
+- built-in provider일 때 `VibeDeck: Copy Smoke Command`는 extension 활성화 smoke 명령을 복사합니다.
 
 ```powershell
 $env:CURSOR_BRIDGE_TCP_ADDR = "127.0.0.1:7797"
@@ -56,7 +56,7 @@ go run ./cmd/agent
 
 ### 로컬 smoke
 
-가짜 `cursor-agent`를 쓰는 결정적 smoke는 아래 명령으로 확인할 수 있습니다.
+low-level provider smoke:
 
 ```powershell
 npm run smoke:provider
@@ -67,6 +67,18 @@ npm run smoke:provider
 - built-in command provider가 기본 `vibedeck.*` 명령을 등록하는지
 - command bridge가 command registry를 통해 `submitTask/getPatch/applyPatch/runProfile/getRunResult`를 호출하는지
 - fake cursor-agent가 만든 diff가 patch bundle/apply/run result로 정상 전달되는지
+
+extension activation path smoke:
+
+```powershell
+npm run smoke:extension
+```
+
+이 smoke는 다음을 추가로 검증합니다.
+
+- `extension.ts -> bridgeExtensionController -> built-in provider` 활성화 경로
+- status bar/clipboard/validate command 흐름
+- TCP bridge가 실제로 열리고 JSON-RPC로 왕복되는지
 
 ### external provider
 

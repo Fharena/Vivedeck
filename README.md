@@ -179,17 +179,23 @@ mock mode smoke는 아래 스크립트로 바로 검증할 수 있습니다.
 powershell -ExecutionPolicy Bypass -File .\scripts\extension_host_smoke.ps1 -BridgeAddress "127.0.0.1:7797"
 ```
 
-built-in command provider 자체는 아래 명령으로 결정적 smoke를 돌릴 수 있습니다.
+command mode built-in provider smoke는 두 단계로 볼 수 있습니다.
 
 ```powershell
 npm --prefix extensions/vibedeck-bridge run smoke:provider
+npm --prefix extensions/vibedeck-bridge run smoke:extension
 ```
+
+- `smoke:provider`는 built-in provider와 command bridge의 low-level 경로를 검증합니다.
+- `smoke:extension`은 `extension.ts -> bridgeExtensionController -> built-in provider -> TCP bridge` 활성화 경로를 검증합니다.
+- `VibeDeck: Copy Smoke Command`는 mock mode에서는 `extension_host_smoke.ps1`, built-in command mode에서는 `npm --prefix extensions/vibedeck-bridge run smoke:extension` 명령을 복사합니다.
 
 현재 상태:
 
 - `mock` 모드는 실제 extension host 안에서 등록된 mock command를 통해 `Prompt -> Patch -> Apply -> Run` smoke를 검증합니다.
 - `command` 모드의 기본값은 built-in `cursor-agent` provider이며, 별도 외부 command ID 없이도 기본 `vibedeck.*` 매핑으로 시작할 수 있습니다.
-- `commandProvider=external`로 바꾸면 기존처럼 외부 command registry만 사용합니다.
+- `smoke:extension`까지 추가되어, 저장소 안에서 extension 활성화 코드 경로를 자동 검증할 수 있습니다.
+- 아직 남은 마지막 갭은 실제 Cursor/VS Code GUI extension host에서 real editor session 기준 smoke/E2E입니다.
 - Windows에서는 mock smoke 종료 직후 `agent.exe` 잠금 때문에 temp root cleanup warning이 남을 수 있습니다.
 
 ## 문서
