@@ -332,17 +332,11 @@ export class CursorAgentCommandAdapter implements WorkspaceAdapter {
       return pickCommandOutput(result);
     }
 
-    const bashScript = buildWSLCursorAgentScript(
-      worktreeDir,
-      this.config.cursorAgentBin,
-      cursorArgs,
-      this.config.cursorAgentEnv,
-    );
-    const wslArgs: string[] = [];
+    const wslArgs: string[] = ["--cd", worktreeDir];
     if (this.config.wslDistro?.trim()) {
       wslArgs.push("-d", this.config.wslDistro.trim());
     }
-    wslArgs.push("--", "bash", "-lc", bashScript);
+    wslArgs.push("--", this.config.cursorAgentBin, ...cursorArgs);
     const result = await runCommand("wsl.exe", wslArgs, {
       timeoutMs: this.config.promptTimeoutMs,
     });
@@ -479,6 +473,7 @@ async function runCommand(
 }
 
 function buildCursorAgentPrompt(input: SubmitTaskInput): string {
+  const changedFiles = Array.isArray(input.context.changedFiles) ? input.context.changedFiles : [];
   const lines = [
     "You are running inside a disposable VibeDeck git worktree snapshot.",
     "Apply the requested code changes directly to files in this workspace.",
@@ -500,9 +495,9 @@ function buildCursorAgentPrompt(input: SubmitTaskInput): string {
   if (input.context.latestTerminalError) {
     lines.push("Latest terminal error:", input.context.latestTerminalError);
   }
-  if (input.context.changedFiles.length > 0) {
+  if (changedFiles.length > 0) {
     lines.push("Changed files already in the workspace:");
-    for (const changedFile of input.context.changedFiles) {
+    for (const changedFile of changedFiles) {
       lines.push(`- ${normalizeSlashes(changedFile)}`);
     }
   }

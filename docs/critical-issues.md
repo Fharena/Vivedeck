@@ -235,13 +235,28 @@
 - 영향: mock/fixture에서는 드러나지 않던 실제 LLM 지연 때문에 `PROMPT_SUBMIT`과 `RUN_PROFILE`이 지속적으로 실패함
 - 즉시 대응:
   - HTTP/P2P control handler에 message type별 timeout helper를 도입
-  - `PROMPT_SUBMIT`, `RUN_PROFILE`은 2분, `PATCH_APPLY`는 30초, 나머지는 5초로 분리
+  - `PROMPT_SUBMIT`, `RUN_PROFILE`은 처음 2분으로 분리했고, 실제 GUI smoke 검증 후 5분으로 상향. `PATCH_APPLY`는 30초, 나머지는 5초 유지
   - timeout 정책 단위 테스트 추가
 - 영구 대응:
   - timeout budget을 환경변수 또는 운영 설정으로 외부화
   - runtime metrics에 handler latency/timeout 비율을 추가해 조기 경고 가능하게 함
 - 학습 포인트:
   - fixture가 빠르게 응답한다고 해서 운영 timeout budget이 충분한 것은 아니며, 실제 AI latency를 기준으로 제어면 budget을 따로 설계해야 함
+### 2026-03-08 / RUNTIME-004 / 실제 GUI extension host + Cursor Agent 첫 호출이 2분 budget을 초과
+
+- 증상: 실제 Cursor GUI extension host에서 built-in cursor-agent provider를 통해 `PROMPT_SUBMIT`을 실행하면 첫 호출이 2분 budget을 넘어 `context deadline exceeded`로 종료될 수 있음
+- 영향: fixture/mock smoke는 통과해도 real smoke/E2E가 불안정하고, 사용자는 첫 실제 요청에서 실패로 인식할 수 있음
+- 즉시 대응:
+  - HTTP/P2P control timeout에서 `PROMPT_SUBMIT`/`RUN_PROFILE` budget을 5분으로 상향
+  - extension built-in provider 기본 `promptTimeoutMs`/`runTimeoutMs`도 300000으로 상향
+  - `scripts/gui_extension_host_smoke.ps1`로 실제 Cursor GUI host 기준 smoke 재검증 통과
+- 영구 대응:
+  - timeout budget을 환경변수 또는 운영 설정으로 외부화
+  - 첫 호출 latency와 steady-state latency를 분리 관측해 budget을 재조정
+  - 장기적으로는 `PROMPT_SUBMIT`을 비동기 job kickoff와 상태 polling으로 분리 검토
+- 학습 포인트:
+  - fixture가 빠르게 응답한다고 운영 budget이 충분한 것은 아니며, 실제 GUI/LLM warm-up 비용을 기준으로 제어면 deadline을 설계해야 함
+
 ### 2026-03-08 / TOOLCHAIN-007 / Windows extension host smoke 종료 직후 agent.exe 잠금
 
 - 증상: `scripts/extension_host_smoke.ps1`가 기능 smoke는 통과하지만 cleanup 단계에서 `Access to the path ''agent.exe'' is denied.` 경고를 남기고 temp root를 지우지 못함

@@ -69,6 +69,7 @@ TypeScript 브리지 패키지 구성:
 - `GET /v1/agent/runtime/adapter`는 현재 adapter 이름, capability, mode, workspace root, binary 경로 같은 smoke 진단 정보를 노출합니다.
 - `scripts/cursor_agent_smoke.ps1`는 temp repo를 만들고 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` smoke를 자동 수행합니다. 현재 Windows + WSL + login 완료 환경에서 실제 smoke proof를 확보했습니다.
 - `scripts/extension_host_smoke.ps1`는 이미 떠 있는 extension host TCP bridge에 대해 bridge preflight 후 agent mock smoke를 수행합니다.
+- `scripts/gui_extension_host_smoke.ps1`는 실제 Cursor GUI extension host를 dev extension 모드로 띄우고, built-in cursor-agent provider 경로를 end-to-end로 검증합니다.
 - `npm --prefix extensions/vibedeck-bridge run smoke:provider`는 fake cursor-agent를 사용해 built-in command provider와 command bridge 경로를 결정적으로 검증합니다.
 - `npm --prefix extensions/vibedeck-bridge run smoke:extension`는 fake VS Code host + fake cursor-agent를 사용해 `extension.ts -> controller -> TCP bridge -> JSON-RPC` 활성화 경로를 검증합니다.
 
@@ -76,7 +77,7 @@ TypeScript 브리지 패키지 구성:
 
 모든 제어 경로 메시지는 공통 Envelope를 사용합니다.
 
-- HTTP/P2P control handler는 message type별 timeout budget을 사용합니다. `PROMPT_SUBMIT`/`RUN_PROFILE`는 2분, `PATCH_APPLY`는 30초, 나머지는 5초입니다.
+- HTTP/P2P control handler는 message type별 timeout budget을 사용합니다. `PROMPT_SUBMIT`/`RUN_PROFILE`는 5분, `PATCH_APPLY`는 30초, 나머지는 5초입니다.
 
 - `sid`: session id
 - `rid`: request id

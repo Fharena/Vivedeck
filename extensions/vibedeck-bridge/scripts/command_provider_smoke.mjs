@@ -102,9 +102,7 @@ try {
     const task = await bridge.submitTask({
       prompt: "Update notes.txt for smoke",
       template: "smoke",
-      context: {
-        changedFiles: [],
-      },
+      context: {},
     });
     const patch = await bridge.getPatch(task.taskId);
     assert.ok(patch, "patch should be returned");

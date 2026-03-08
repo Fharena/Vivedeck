@@ -13,8 +13,8 @@ func TestControlEnvelopeTimeout(t *testing.T) {
 		typ  protocol.MessageType
 		want time.Duration
 	}{
-		{name: "prompt", typ: protocol.TypePromptSubmit, want: 2 * time.Minute},
-		{name: "run", typ: protocol.TypeRunProfile, want: 2 * time.Minute},
+		{name: "prompt", typ: protocol.TypePromptSubmit, want: 5 * time.Minute},
+		{name: "run", typ: protocol.TypeRunProfile, want: 5 * time.Minute},
 		{name: "patch", typ: protocol.TypePatchApply, want: 30 * time.Second},
 		{name: "ack", typ: protocol.TypeCmdAck, want: 5 * time.Second},
 	}

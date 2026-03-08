@@ -2,7 +2,17 @@ param(
     [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
     [string]$BridgeAddress = $(if ($env:CURSOR_BRIDGE_TCP_ADDR) { $env:CURSOR_BRIDGE_TCP_ADDR } else { "127.0.0.1:7797" }),
     [string]$AgentBaseUrl = "",
+    [string]$Prompt = "auth middleware 401 handling bug root cause를 설명하고 patch를 제안해줘",
+    [string]$Template = "smoke",
+    [string]$ExpectedPatchPath = "src/auth/middleware.ts",
+    [string]$ExpectedDiffPattern = "return res\.status\(401\)\.send\(\)",
+    [string]$RunProfileId = "test_all",
     [string]$ExpectedRunStatus = "failed",
+    [string]$RunProfileFile = "",
+    [bool]$IncludeActiveFile = $true,
+    [bool]$IncludeSelection = $true,
+    [bool]$IncludeLatestError = $true,
+    [bool]$IncludeWorkspaceSummary = $true,
     [int]$StartupTimeoutSec = 60,
     [switch]$KeepTempRoot
 )
@@ -176,6 +186,9 @@ $goCommand = Resolve-RequiredCommand -Name "go" -Hint "Go toolchain이 필요합
 if ([string]::IsNullOrWhiteSpace($AgentBaseUrl)) {
     $AgentBaseUrl = Get-FreeLoopbackUrl
 }
+if (-not [string]::IsNullOrWhiteSpace($RunProfileFile)) {
+    $RunProfileFile = (Resolve-Path $RunProfileFile).Path
+}
 
 $bridge = Split-BridgeAddress -Address $BridgeAddress
 $bridgeName = Invoke-BridgeJsonRpc -Hostname $bridge.Hostname -Port $bridge.Port -Method "name"
@@ -201,12 +214,16 @@ $scriptContent = @(
     ("set AGENT_ADDR={0}" -f $listenAddress),
     ("set GOCACHE={0}" -f $goCacheDir),
     ("set GOTMPDIR={0}" -f $goTmpDir),
-    ("set CURSOR_BRIDGE_TCP_ADDR={0}" -f $BridgeAddress),
-    ('"{0}" run ./cmd/agent 1>"{1}" 2>"{2}"' -f $goCommand.Source, $stdoutLog, $stderrLog)
+    ("set CURSOR_BRIDGE_TCP_ADDR={0}" -f $BridgeAddress)
 ) -join "`r`n"
+if (-not [string]::IsNullOrWhiteSpace($RunProfileFile)) {
+    $scriptContent += "`r`n" + ('set RUN_PROFILE_FILE={0}' -f $RunProfileFile)
+}
+$scriptContent += "`r`n" + ('"{0}" run ./cmd/agent 1>"{1}" 2>"{2}"' -f $goCommand.Source, $stdoutLog, $stderrLog)
 [System.IO.File]::WriteAllText($agentScriptPath, $scriptContent + "`r`n", [System.Text.UTF8Encoding]::new($false))
 
 $agentProcess = $null
+$smokeSucceeded = $false
 try {
     $agentProcess = Start-Process -FilePath $agentScriptPath -WorkingDirectory $repoRootResolved -PassThru -WindowStyle Hidden
     $null = Wait-AgentReady -HealthUrl ($AgentBaseUrl.TrimEnd("/") + "/healthz") -Process $agentProcess -TimeoutSec $StartupTimeoutSec -StdErrLog $stderrLog
@@ -218,13 +235,13 @@ try {
 
     $sid = "sid-extension-smoke"
     $promptResponse = Invoke-AgentJson -Method POST -Uri ($AgentBaseUrl.TrimEnd("/") + "/v1/agent/envelope") -Body (New-Envelope -Sid $sid -Rid "rid-prompt-1" -Seq 1 -Type "PROMPT_SUBMIT" -Payload @{
-        prompt = "auth middleware 401 handling bug root cause를 설명하고 patch를 제안해줘"
-        template = "smoke"
+        prompt = $Prompt
+        template = $Template
         contextOptions = @{
-            includeActiveFile = $true
-            includeSelection = $true
-            includeLatestError = $true
-            includeWorkspaceSummary = $true
+            includeActiveFile = $IncludeActiveFile
+            includeSelection = $IncludeSelection
+            includeLatestError = $IncludeLatestError
+            includeWorkspaceSummary = $IncludeWorkspaceSummary
         }
     })
 
@@ -243,13 +260,14 @@ try {
     }
 
     $patchFiles = @($patchReady.payload.files)
-    if ($patchFiles.Count -ne 1 -or $patchFiles[0].path -ne "src/auth/middleware.ts") {
+    if ($patchFiles.Count -ne 1 -or $patchFiles[0].path -ne $ExpectedPatchPath) {
         throw "unexpected patch files: $(($patchFiles | ConvertTo-Json -Depth 6 -Compress))"
     }
     $patchDiff = @($patchFiles[0].hunks | ForEach-Object { $_.diff }) -join "`n"
-    if ($patchDiff -notmatch "return res\.status\(401\)\.send\(\)") {
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedDiffPattern) -and $patchDiff -notmatch $ExpectedDiffPattern) {
         throw "smoke patch does not contain expected fix: $patchDiff"
     }
+    $patchFilePaths = @($patchFiles | Where-Object { $null -ne $_ } | ForEach-Object { $_.path })
 
     $applyResponse = Invoke-AgentJson -Method POST -Uri ($AgentBaseUrl.TrimEnd("/") + "/v1/agent/envelope") -Body (New-Envelope -Sid $sid -Rid "rid-apply-1" -Seq 2 -Type "PATCH_APPLY" -Payload @{
         jobId = $jobId
@@ -265,7 +283,7 @@ try {
 
     $runResponse = Invoke-AgentJson -Method POST -Uri ($AgentBaseUrl.TrimEnd("/") + "/v1/agent/envelope") -Body (New-Envelope -Sid $sid -Rid "rid-run-1" -Seq 3 -Type "RUN_PROFILE" -Payload @{
         jobId = $jobId
-        profileId = "test_all"
+        profileId = $RunProfileId
     })
     $runResult = $runResponse.responses | Where-Object { $_.type -eq "RUN_RESULT" } | Select-Object -First 1
     if (-not $runResult) {
@@ -273,6 +291,11 @@ try {
     }
     if (-not [string]::IsNullOrWhiteSpace($ExpectedRunStatus) -and $runResult.payload.status -ne $ExpectedRunStatus) {
         throw "unexpected run status: $($runResult.payload.status)"
+    }
+    $topErrors = @($runResult.payload.topErrors)
+    $topErrorMessage = $null
+    if ($topErrors.Count -gt 0 -and $null -ne $topErrors[0]) {
+        $topErrorMessage = $topErrors[0].message
     }
 
     $smokeSucceeded = $true
@@ -282,11 +305,14 @@ try {
         adapterName = $adapter.name
         adapterMode = $adapter.mode
         patchSummary = $patchReady.payload.summary
-        patchFiles = @($patchFiles | ForEach-Object { $_.path })
+        patchFiles = $patchFilePaths
         applyStatus = $patchResult.payload.status
+        jobId = $jobId
+        promptTemplate = $Template
+        runProfileId = $RunProfileId
         runStatus = $runResult.payload.status
         runSummary = $runResult.payload.summary
-        topError = $runResult.payload.topErrors[0].message
+        topError = $topErrorMessage
         tempRoot = $tempRoot
     }
 } finally {
