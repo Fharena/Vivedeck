@@ -239,7 +239,7 @@
   - timeout 정책 단위 테스트 추가
 - 영구 대응:
   - timeout budget을 환경변수 또는 운영 설정으로 외부화
-  - runtime metrics에 handler latency/timeout 비율을 추가해 조기 경고 가능하게 함
+  - runtime metrics에 handler latency/timeout 비율을 추가해 조기 경고 가능하게 함(완료: `/v1/agent/runtime/metrics` + `/metrics`에 control 집계 추가)
 - 학습 포인트:
   - fixture가 빠르게 응답한다고 해서 운영 timeout budget이 충분한 것은 아니며, 실제 AI latency를 기준으로 제어면 budget을 따로 설계해야 함
 ### 2026-03-08 / RUNTIME-004 / 실제 GUI extension host + Cursor Agent 첫 호출이 2분 budget을 초과

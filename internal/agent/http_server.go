@@ -5,32 +5,36 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Fharena/Vivedeck/internal/protocol"
 	"github.com/Fharena/Vivedeck/internal/runtime"
 )
 
 type HTTPServer struct {
-	adapter       WorkspaceAdapter
-	stateManager  *runtime.StateManager
-	ackTracker    *runtime.AckTracker
-	controlRouter *ControlRouter
-	p2pManager    *P2PSessionManager
+	adapter        WorkspaceAdapter
+	stateManager   *runtime.StateManager
+	ackTracker     *runtime.AckTracker
+	controlMetrics *ControlMetrics
+	controlRouter  *ControlRouter
+	p2pManager     *P2PSessionManager
 }
 
-func NewHTTPServer(adapter WorkspaceAdapter, orchestrator *Orchestrator, stateManager *runtime.StateManager, ackTracker *runtime.AckTracker, p2pManager *P2PSessionManager) *HTTPServer {
+func NewHTTPServer(adapter WorkspaceAdapter, orchestrator *Orchestrator, stateManager *runtime.StateManager, ackTracker *runtime.AckTracker, controlMetrics *ControlMetrics, p2pManager *P2PSessionManager) *HTTPServer {
 	return &HTTPServer{
-		adapter:       adapter,
-		stateManager:  stateManager,
-		ackTracker:    ackTracker,
-		controlRouter: NewControlRouter(orchestrator, ackTracker),
-		p2pManager:    p2pManager,
+		adapter:        adapter,
+		stateManager:   stateManager,
+		ackTracker:     ackTracker,
+		controlMetrics: controlMetrics,
+		controlRouter:  NewControlRouter(orchestrator, ackTracker),
+		p2pManager:     p2pManager,
 	}
 }
 
 func (s *HTTPServer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", s.handleHealth)
+	mux.HandleFunc("/metrics", s.handlePrometheusMetrics)
 	mux.HandleFunc("/v1/agent/envelope", s.handleEnvelope)
 	mux.HandleFunc("/v1/agent/runtime/state", s.handleRuntimeState)
 	mux.HandleFunc("/v1/agent/runtime/metrics", s.handleRuntimeMetrics)
@@ -79,10 +83,14 @@ func (s *HTTPServer) handleEnvelope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	startedAt := time.Now()
 	ctx, cancel := context.WithTimeout(r.Context(), controlEnvelopeTimeout(env.Type))
 	defer cancel()
 
 	result, err := s.controlRouter.HandleEnvelope(ctx, env)
+	if env.Type != protocol.TypeCmdAck && s.controlMetrics != nil {
+		s.controlMetrics.Observe(env.Type, ControlPathHTTP, time.Since(startedAt), err)
+	}
 	if env.Type == protocol.TypeCmdAck {
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid CMD_ACK payload"})
@@ -178,10 +186,53 @@ func (s *HTTPServer) handleRuntimeMetrics(w http.ResponseWriter, r *http.Request
 		metrics = s.ackTracker.Metrics()
 	}
 
+	p2pActive := false
+	if s.p2pManager != nil {
+		p2pActive = s.p2pManager.Status().Active
+	}
+
+	control := EmptyControlMetricsSnapshot()
+	if s.controlMetrics != nil {
+		control = s.controlMetrics.Snapshot()
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"state": state,
-		"ack":   metrics,
+		"state":     state,
+		"p2pActive": p2pActive,
+		"ack":       metrics,
+		"control":   control,
 	})
+}
+
+func (s *HTTPServer) handlePrometheusMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	state := runtime.StatePairing
+	if s.stateManager != nil {
+		state = s.stateManager.State()
+	}
+
+	metrics := runtime.EmptyAckMetrics()
+	if s.ackTracker != nil {
+		metrics = s.ackTracker.Metrics()
+	}
+
+	p2pActive := false
+	if s.p2pManager != nil {
+		p2pActive = s.p2pManager.Status().Active
+	}
+
+	control := EmptyControlMetricsSnapshot()
+	if s.controlMetrics != nil {
+		control = s.controlMetrics.Snapshot()
+	}
+
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(renderPrometheusMetrics(state, p2pActive, metrics, control)))
 }
 
 func (s *HTTPServer) handleRuntimeAdapter(w http.ResponseWriter, r *http.Request) {

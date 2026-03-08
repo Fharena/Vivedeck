@@ -142,12 +142,13 @@
 - fake cursor-agent 기반 command provider smoke(`npm --prefix extensions/vibedeck-bridge run smoke:provider`)
 - 실제 Cursor GUI extension host + built-in cursor-agent provider smoke proof(`scripts/gui_extension_host_smoke.ps1`)
 - Go `cursor_agent_cli` adapter와 extension built-in provider 공통 ignored 파일 explicit allowlist sync 정책
+- Prometheus scrape endpoint(`/metrics`) + control handler latency/timeout metrics
 
 ## 다음 작업 우선순위
 
-1. 운영 메트릭 외부 대시보드 연동
-2. 실제 사용 패키징/온보딩 가이드 정리
-3. Windows smoke cleanup/agent 잠금 이슈 정리
+1. 실제 사용 패키징/온보딩 가이드 정리
+2. Windows smoke cleanup/agent 잠금 이슈 정리
+3. control timeout budget 운영 설정 외부화
 
 ## 커밋 전략
 
