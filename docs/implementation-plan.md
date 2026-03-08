@@ -133,19 +133,20 @@
 - Windows WSL distro/binary 자동 탐지 + direct exec smoke 지원
 - headless `cursor-agent` 기본 `--trust`, `--model auto` 주입
 - 실제 login 완료 환경에서 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` smoke proof 확보
-- 실제 LLM 지연을 반영한 control envelope timeout 분리(`PROMPT_SUBMIT`/`RUN_PROFILE`: 2분, `PATCH_APPLY`: 30초)
+- 실제 LLM 지연을 반영한 control envelope timeout 분리(`PROMPT_SUBMIT`/`RUN_PROFILE`: 5분, `PATCH_APPLY`: 30초)
 - extension built-in cursor-agent command provider
 - `bridgeExtensionController` 분리로 extension 활성화 로직 주입 가능화
 - extension activation path smoke(`npm --prefix extensions/vibedeck-bridge run smoke:extension`)
 - 기본 `vibedeck.*` command 설정이 `undefined`로 덮이지 않도록 command 설정 병합 버그 수정
 - built-in provider가 기본 `vibedeck.*` command를 직접 등록하는 command mode runtime
 - fake cursor-agent 기반 command provider smoke(`npm --prefix extensions/vibedeck-bridge run smoke:provider`)
+- 실제 Cursor GUI extension host + built-in cursor-agent provider smoke proof(`scripts/gui_extension_host_smoke.ps1`)
 
 ## 다음 작업 우선순위
 
-1. 실제 Cursor/VS Code GUI extension host에서 built-in provider real smoke/E2E 정리
-2. ignored/generated 파일 sync 정책과 운영 메트릭 외부 대시보드 연동
-3. 실제 사용 패키징/온보딩 가이드 정리
+1. ignored/generated 파일 sync 정책과 운영 메트릭 외부 대시보드 연동
+2. 실제 사용 패키징/온보딩 가이드 정리
+3. Windows smoke cleanup/agent 잠금 이슈 정리
 
 ## 커밋 전략
 

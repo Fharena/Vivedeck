@@ -563,19 +563,19 @@ function readCursorAgentSettings(
     gitBin: readOptionalCommand(config, "cursorAgent.gitBin") ?? "git",
     cursorAgentBin: readOptionalCommand(config, "cursorAgent.bin") ?? "cursor-agent",
     cursorAgentArgs: ensureCursorAgentModelArg(
-      ensureCursorAgentTrustFlag(extraArgs, trustWorkspace),
+      ensureCursorAgentTrustFlag(ensureCursorAgentHeadlessArgs(extraArgs), trustWorkspace),
       model,
     ),
     cursorAgentEnv: readStringArray(config, "cursorAgent.extraEnv"),
     useWsl: config.get<boolean>("cursorAgent.useWsl", false),
     wslDistro: readOptionalCommand(config, "cursorAgent.wslDistro"),
     promptTimeoutMs: normalizeDuration(
-      config.get<number>("cursorAgent.promptTimeoutMs", 120000),
-      120000,
+      config.get<number>("cursorAgent.promptTimeoutMs", 300000),
+      300000,
     ),
     runTimeoutMs: normalizeDuration(
-      config.get<number>("cursorAgent.runTimeoutMs", 120000),
-      120000,
+      config.get<number>("cursorAgent.runTimeoutMs", 300000),
+      300000,
     ),
   };
 }
@@ -714,6 +714,17 @@ function normalizeDuration(value: number, fallback: number): number {
     return fallback;
   }
   return Math.trunc(value);
+}
+
+function ensureCursorAgentHeadlessArgs(args: string[]): string[] {
+  const next = [...args];
+  if (!next.includes("--print")) {
+    next.push("--print");
+  }
+  if (!next.includes("--output-format")) {
+    next.push("--output-format", "json");
+  }
+  return next;
 }
 
 function ensureCursorAgentTrustFlag(args: string[], enabled: boolean): string[] {

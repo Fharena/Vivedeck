@@ -185,13 +185,13 @@
         },
         "vibedeckBridge.cursorAgent.promptTimeoutMs": {
           "type": "number",
-          "default": 120000,
+          "default": 300000,
           "minimum": 1000,
           "description": "builtin cursor-agent provider의 prompt 실행 timeout(ms)입니다."
         },
         "vibedeckBridge.cursorAgent.runTimeoutMs": {
           "type": "number",
-          "default": 120000,
+          "default": 300000,
           "minimum": 1000,
           "description": "builtin cursor-agent provider의 run profile timeout(ms)입니다."
         }
