@@ -155,6 +155,7 @@
 - extension local agent 자동 부트스트랩(`vibedeckBridge.agent.*`, `VibeDeck: Start/Stop/Restart Local Agent`)
 - bootstrap smoke(`npm --prefix extensions/vibedeck-bridge run smoke:bootstrap`)
 - patch files를 thread event에 저장해 모바일/IDE가 thread detail만으로 review 상태 복원 가능
+- shared thread history 디스크 영속화(THREAD_STORE_FILE, 기본 %APPDATA%\\VibeDeck\\thread-store.json)
 
 ## 다음 작업 우선순위
 
