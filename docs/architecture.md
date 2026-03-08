@@ -5,7 +5,7 @@
 - 모바일 앱(Flutter): 대화/검토/상태 화면 제공, 공유 스레드 타임라인 표시
 - PC 에이전트(Go): 잡 오케스트레이션, 공유 스레드 저장소, 패치 수명주기, 실행 프로파일, 전송 바인딩, IDE provider 연결 관리
 - IDE 브리지(TypeScript): IDE extension host 추상화, extension runtime helper, stdio/TCP RPC 서버, 컨텍스트 조회, 패치 적용, 파일/라인 열기
-- VibeDeck Bridge Extension(VS Code/Cursor): localhost TCP bridge package, mock mode와 built-in/external command provider 기반 command mode 제공
+- VibeDeck Bridge Extension(VS Code/Cursor): localhost TCP bridge package, mock mode와 built-in/external command provider 기반 command mode 제공, shared thread panel 제공
 - Signaling 서버(Go): 페어링 및 WebRTC 시그널링 부트스트랩
 - Relay 서버(Go): 폴백 이벤트 라우팅 + 백프레셔 정책
 
@@ -14,6 +14,7 @@
 - Cursor는 첫 번째 실사용 provider일 뿐, 제품 경계가 아니다.
 - agent 코어는 특정 IDE 채팅/패널 구현에 의존하지 않고 공유 스레드/패치/실행 모델만 안다.
 - 모바일과 IDE는 동일한 thread/event 모델을 공유하고, 각 클라이언트는 자신의 UI로만 렌더링한다.
+- IDE 패널은 agent HTTP API를 직접 읽는 provider-agnostic 레이어로 두어, Cursor 이후 다른 AI IDE host에도 같은 panel data layer를 재사용한다.
 - 온보딩은 extension/패키지 기반 최소 세팅을 목표로 한다. 수동 환경변수 입력은 점진적으로 축소한다.
 
 ## Flutter UI 베이스라인 (`mobile/flutter_app`)
@@ -81,6 +82,7 @@ TypeScript 브리지 패키지 구성:
 - `serveCursorExtensionBridge`, `serveStdioBridge`, `serveSocketBridge`가 newline-delimited JSON RPC over stdio/TCP 서버를 구성
 - extensions/vibedeck-bridge는 mock mode, built-in cursor-agent provider, external command registry 연동, 설정 기반 command ID 매핑, command registry readiness 검증, agent env 복사 명령을 제공하는 설치 가능한 extension package입니다.
 - `bridgeExtensionController`는 extension 활성화 로직을 주입 가능한 controller로 분리해 fake host 기반 smoke에서도 같은 시작 경로를 재사용합니다.
+- `threadPanelController`는 agent HTTP API(`runtime/adapter`, `run-profiles`, `threads`, `threads/{id}`, `envelope`)를 읽어 IDE shared thread panel을 구성합니다. panel 로직은 bridge/provider 구현과 분리돼 있어 향후 다른 IDE host에도 그대로 옮길 수 있습니다.
 - CursorAgentCLIAdapter는 네이티브 cursor-agent 또는 Windows WSL distro 안의 `~/.local/bin/cursor-agent`/`agent`를 감지해 임시 git worktree snapshot에서 실행하고, tracked 변경 + untracked 파일 + 명시 allowlist와 일치하는 ignored 파일만 snapshot에 반영한 뒤 생성된 diff를 PatchReadyPayload로 파싱합니다. 실제 workspace 반영은 review 승인 후 git apply로만 수행합니다.
 
 ## 에이전트-어댑터 연결

@@ -13,6 +13,9 @@ const controller = createBridgeExtensionController({
   statusBarAlignment: {
     left: vscode.StatusBarAlignment.Left,
   },
+  viewColumn: {
+    one: vscode.ViewColumn.One,
+  },
 });
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {

@@ -150,15 +150,17 @@
 - 모바일 대화형 스레드 화면(스레드 목록, 타임라인, 자연어 프롬프트 작성)
 - 모바일 검토 화면의 동적 run profile 목록과 전체 실행 출력 표시
 - 모바일 상태 화면의 workspace adapter/runtime 정보 표시
+- Cursor extension shared thread panel(`vibedeckBridge.openThreadPanel`)
+- extension panel smoke(`npm --prefix extensions/vibedeck-bridge run smoke:panel`)
+- patch files를 thread event에 저장해 모바일/IDE가 thread detail만으로 review 상태 복원 가능
 
 ## 다음 작업 우선순위
 
-1. IDE shared thread panel 추가로 모바일/IDE 같은 대화 흐름 완성
-2. bridge/agent 자동 부트스트랩으로 IDE 세팅 최소화
-3. Cursor 외 provider(Codex/Claude Code/Antigravity) 확장용 adapter mode 정리
-4. Windows smoke cleanup/agent 잠금 이슈 정리
-5. control timeout budget 운영 설정 외부화
-6. 설치 산출물 버전 관리/릴리스 자동화
+1. bridge/agent 자동 부트스트랩으로 IDE 세팅 최소화
+2. Cursor 외 provider(Codex/Claude Code/Antigravity) 확장용 adapter mode 정리
+3. Windows smoke cleanup/agent 잠금 이슈 정리
+4. control timeout budget 운영 설정 외부화
+5. 설치 산출물 버전 관리/릴리스 자동화
 
 ## 커밋 전략
 

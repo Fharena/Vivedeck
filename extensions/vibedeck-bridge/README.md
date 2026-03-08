@@ -48,6 +48,28 @@ cursor --install-extension .\artifacts\vsix\vibedeck-bridge-0.1.0.vsix --force
 powershell -ExecutionPolicy Bypass -File .\scripts\vibedeck_doctor.ps1
 ```
 
+## shared thread panel
+
+`VibeDeck: Open Shared Threads` 명령은 agent의 shared thread API를 읽는 IDE 패널을 엽니다.
+이 패널은 모바일 앱과 같은 thread/event 모델을 사용하므로, 같은 스레드 타임라인과 patch/run 결과를 IDE 안에서도 그대로 이어서 볼 수 있습니다.
+
+주요 설정:
+
+- `vibedeckBridge.agentBaseUrl`: 기본값 `http://127.0.0.1:8080`
+- `vibedeckBridge.panelAutoRefreshMs`: 기본값 `4000`
+
+panel smoke:
+
+```powershell
+npm run smoke:panel
+```
+
+이 smoke는 다음을 검증합니다.
+
+- panel 명령 등록과 open/reveal 경로
+- agent HTTP thread 조회/refresh
+- panel에서 `PROMPT_SUBMIT`, `PATCH_APPLY`, `RUN_PROFILE`, `OPEN_LOCATION` 제어
+
 ## command mode
 
 기본값은 `vibedeckBridge.commandProvider=builtin_cursor_agent` 입니다.
