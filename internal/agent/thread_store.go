@@ -1,7 +1,11 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -37,9 +41,10 @@ type ThreadDetail struct {
 }
 
 type ThreadStore struct {
-	mu          sync.RWMutex
-	threads     map[string]*threadRecord
-	jobToThread map[string]string
+	mu              sync.RWMutex
+	threads         map[string]*threadRecord
+	jobToThread     map[string]string
+	persistencePath string
 }
 
 type threadRecord struct {
@@ -47,11 +52,35 @@ type threadRecord struct {
 	events  []ThreadEvent
 }
 
+type threadStoreSnapshot struct {
+	Version int            `json:"version"`
+	SavedAt int64          `json:"savedAt"`
+	Threads []ThreadDetail `json:"threads"`
+}
+
 func NewThreadStore() *ThreadStore {
 	return &ThreadStore{
 		threads:     make(map[string]*threadRecord),
 		jobToThread: make(map[string]string),
 	}
+}
+
+func NewPersistentThreadStore(path string) (*ThreadStore, error) {
+	store := NewThreadStore()
+	store.persistencePath = strings.TrimSpace(path)
+	if store.persistencePath == "" {
+		return store, nil
+	}
+	if err := store.loadFromDisk(); err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+func (s *ThreadStore) PersistencePath() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.persistencePath
 }
 
 func (s *ThreadStore) EnsureThread(threadID, sessionID, title string) ThreadSummary {
@@ -75,6 +104,7 @@ func (s *ThreadStore) EnsureThread(threadID, sessionID, title string) ThreadSumm
 		}
 		record = &threadRecord{summary: summary, events: make([]ThreadEvent, 0, 16)}
 		s.threads[threadID] = record
+		s.persistLockedBestEffort()
 		return record.summary
 	}
 
@@ -85,6 +115,7 @@ func (s *ThreadStore) EnsureThread(threadID, sessionID, title string) ThreadSumm
 		record.summary.SessionID = strings.TrimSpace(sessionID)
 	}
 	record.summary.UpdatedAt = now
+	s.persistLockedBestEffort()
 	return record.summary
 }
 
@@ -128,6 +159,7 @@ func (s *ThreadStore) AppendEvent(threadID string, event ThreadEvent) (ThreadSum
 	case "run_finished":
 		record.summary.State = valueFromData(event.Data, "status", "completed")
 	}
+	s.persistLockedBestEffort()
 	return record.summary, nil
 }
 
@@ -143,6 +175,7 @@ func (s *ThreadStore) AssignJob(threadID, jobID string) {
 		record.summary.CurrentJobID = jobID
 	}
 	s.jobToThread[jobID] = threadID
+	s.persistLockedBestEffort()
 }
 
 func (s *ThreadStore) ThreadIDForJob(jobID string) (string, bool) {
@@ -187,6 +220,104 @@ func (s *ThreadStore) Get(threadID string) (ThreadDetail, bool) {
 		detail.Events = append(detail.Events, cloneThreadEvent(event))
 	}
 	return detail, true
+}
+
+func (s *ThreadStore) loadFromDisk() error {
+	if s.persistencePath == "" {
+		return nil
+	}
+
+	data, err := os.ReadFile(s.persistencePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read thread store snapshot: %w", err)
+	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return nil
+	}
+
+	var snapshot threadStoreSnapshot
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		return fmt.Errorf("decode thread store snapshot: %w", err)
+	}
+
+	s.threads = make(map[string]*threadRecord, len(snapshot.Threads))
+	s.jobToThread = make(map[string]string)
+	for _, detail := range snapshot.Threads {
+		events := make([]ThreadEvent, 0, len(detail.Events))
+		for _, event := range detail.Events {
+			events = append(events, cloneThreadEvent(event))
+			if event.JobID != "" {
+				s.jobToThread[event.JobID] = detail.Thread.ID
+			}
+		}
+		if detail.Thread.CurrentJobID != "" {
+			s.jobToThread[detail.Thread.CurrentJobID] = detail.Thread.ID
+		}
+		s.threads[detail.Thread.ID] = &threadRecord{
+			summary: detail.Thread,
+			events:  events,
+		}
+	}
+	return nil
+}
+
+func (s *ThreadStore) persistLockedBestEffort() {
+	if s.persistencePath == "" {
+		return
+	}
+	if err := s.persistLocked(); err != nil {
+		log.Printf("thread store persist failed: %v", err)
+	}
+}
+
+func (s *ThreadStore) persistLocked() error {
+	snapshot := s.snapshotLocked()
+	data, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal thread store snapshot: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(s.persistencePath), 0o755); err != nil {
+		return fmt.Errorf("mkdir thread store dir: %w", err)
+	}
+	tmpPath := s.persistencePath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+		return fmt.Errorf("write thread store tmp snapshot: %w", err)
+	}
+	_ = os.Remove(s.persistencePath)
+	if err := os.Rename(tmpPath, s.persistencePath); err != nil {
+		return fmt.Errorf("replace thread store snapshot: %w", err)
+	}
+	return nil
+}
+
+func (s *ThreadStore) snapshotLocked() threadStoreSnapshot {
+	threadIDs := make([]string, 0, len(s.threads))
+	for threadID := range s.threads {
+		threadIDs = append(threadIDs, threadID)
+	}
+	sort.Strings(threadIDs)
+
+	threads := make([]ThreadDetail, 0, len(threadIDs))
+	for _, threadID := range threadIDs {
+		record := s.threads[threadID]
+		detail := ThreadDetail{
+			Thread: record.summary,
+			Events: make([]ThreadEvent, 0, len(record.events)),
+		}
+		for _, event := range record.events {
+			detail.Events = append(detail.Events, cloneThreadEvent(event))
+		}
+		threads = append(threads, detail)
+	}
+
+	return threadStoreSnapshot{
+		Version: 1,
+		SavedAt: time.Now().UTC().UnixMilli(),
+		Threads: threads,
+	}
 }
 
 func cloneThreadEvent(event ThreadEvent) ThreadEvent {
@@ -261,8 +392,11 @@ func valueFromData(data map[string]any, key, fallback string) string {
 		return fallback
 	}
 	if value, ok := data[key]; ok {
-		if text := strings.TrimSpace(fmt.Sprint(value)); text != "" {
-			return text
+		if text, ok := value.(string); ok {
+			text = strings.TrimSpace(text)
+			if text != "" {
+				return text
+			}
 		}
 	}
 	return fallback

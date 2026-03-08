@@ -60,6 +60,7 @@ docs/
 ## 현재 실사용 범위
 
 - 모바일 앱과 agent가 같은 스레드 히스토리를 공유
+- agent 재시작 뒤에도 shared thread history가 디스크에서 복원됨
 - Cursor extension 안에서 shared thread panel을 열어 같은 스레드/패치/실행 결과를 확인하고 프롬프트/적용/실행까지 제어 가능
 - `PROMPT_SUBMIT -> PATCH_READY -> PATCH_APPLY -> RUN_PROFILE` 흐름을 모바일과 IDE 양쪽에서 확인/승인 가능
 - 실행 프로파일 목록은 agent가 동적으로 제공
@@ -70,7 +71,7 @@ docs/
 
 - 모바일 앱은 가능한 한 agent/runtime 정보를 자동 조회해 수동 입력을 줄이는 방향으로 유지
 - IDE 쪽은 extension 또는 배포 가능한 패키지로 최소 세팅만 요구하는 방향으로 유지
-- 현재는 `extensions/vibedeck-bridge` VSIX와 `scripts/vibedeck_doctor.ps1`, `scripts/package_vibedeck_bridge.ps1`, extension local agent 자동 부트스트랩까지 갖춘 상태입니다. 다음 단계는 모바일 앱 bootstrap 자동 세팅과 provider 다변화입니다.
+- 현재는 `extensions/vibedeck-bridge` VSIX와 `scripts/vibedeck_doctor.ps1`, `scripts/package_vibedeck_bridge.ps1`, extension local agent 자동 부트스트랩, shared thread history 영속화까지 갖춘 상태입니다. 다음 단계는 모바일 앱 bootstrap 자동 세팅과 provider 다변화입니다.
 
 ## 로컬 개발
 
@@ -180,6 +181,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\cursor_agent_smoke.ps1
 - 실제 변경이 temp repo 파일에 반영됐는지 확인
 
 현재 스크립트는 네이티브 `cursor-agent`가 없어도 WSL 안의 `cursor-agent`/`agent`를 자동 탐지합니다. 이 PC에서는 `cursor-agent login` 완료 후 실제 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` smoke가 통과했습니다. headless 실행 안정성을 위해 agent는 `--print`, `--output-format json`, `--trust`, `--model auto`를 기본 주입하고, HTTP/P2P control 경로는 message type별 timeout(`PROMPT_SUBMIT`/`RUN_PROFILE`: 5분, `PATCH_APPLY`: 30초)을 사용합니다.
+shared thread history는 기본적으로 디스크에 영속화됩니다.
+
+- 기본 경로: `%APPDATA%\VibeDeck\thread-store.json`
+- override: `THREAD_STORE_FILE=<absolute path>`
+- 현재 범위: thread summary/event history 복원
+- 현재 제한: 진행 중 task/job 자체는 adapter 내부 상태까지 저장하지 않으므로, 재시작 뒤에는 과거 history는 보이지만 미완료 patch/apply/run을 이어서 재개하지는 못합니다.
 
 ### 운영 메트릭 Export
 

@@ -84,6 +84,7 @@ TypeScript 브리지 패키지 구성:
 - `bridgeExtensionController`는 extension 활성화 로직을 주입 가능한 controller로 분리해 fake host 기반 smoke에서도 같은 시작 경로를 재사용합니다.
 - `LocalAgentController`는 bridge 주소를 주입받아 local agent lifecycle(start/stop/restart, ready polling, 상태 요약)을 관리합니다. 현재는 `go_run`/`binary`/`manual` launch mode를 제공하며, provider와 독립된 bootstrap 층으로 유지합니다.
 - `threadPanelController`는 agent HTTP API(`runtime/adapter`, `run-profiles`, `threads`, `threads/{id}`, `envelope`)를 읽어 IDE shared thread panel을 구성합니다. panel 로직은 bridge/provider 구현과 분리돼 있어 향후 다른 IDE host에도 그대로 옮길 수 있습니다.
+- `ThreadStore`는 기본적으로 디스크 스냅샷을 사용해 shared thread history를 재시작 후에도 복원합니다. 현재는 summary/event history 복원까지만 다루고, adapter 내부 task 재개는 별도 범위로 남겨 둡니다.
 - CursorAgentCLIAdapter는 네이티브 cursor-agent 또는 Windows WSL distro 안의 `~/.local/bin/cursor-agent`/`agent`를 감지해 임시 git worktree snapshot에서 실행하고, tracked 변경 + untracked 파일 + 명시 allowlist와 일치하는 ignored 파일만 snapshot에 반영한 뒤 생성된 diff를 PatchReadyPayload로 파싱합니다. 실제 workspace 반영은 review 승인 후 git apply로만 수행합니다.
 
 ## 에이전트-어댑터 연결
@@ -95,7 +96,7 @@ TypeScript 브리지 패키지 구성:
 - 장기적으로는 `WORKSPACE_ADAPTER_MODE`를 Cursor 전용 값에 고정하지 않고 provider 식별자(`cursor_agent_cli`, `cursor_bridge`, `codex_cli`, `claude_code_cli`, ...)로 확장합니다.
 - `CursorBridgeAdapter`(`internal/agent/cursor_bridge_adapter.go`)가 `name`, `capabilities`, `getContext`, `submitTask`, `getPatch`, `applyPatch`, `runProfile`, `getRunResult`, `openLocation` RPC를 담당합니다.
 - `CursorAgentCLIAdapter`(`internal/agent/cursor_agent_cli_adapter.go`)는 현재 workspace 상태를 temp worktree에 동기화하고, 네이티브 CLI 또는 WSL distro 내부의 실제 binary를 직접 실행해 diff만 회수합니다. ignored 파일은 기본 제외하고 `CURSOR_AGENT_SYNC_IGNORED_JSON` allowlist와 일치하는 항목만 snapshot에 포함합니다.
-- `GET /v1/agent/runtime/adapter`는 현재 adapter 이름, capability, mode, workspace root, binary 경로 같은 smoke 진단 정보를 노출합니다. `/metrics`는 ACK 상태, control result(success/error/timeout), handler latency를 Prometheus text format으로 노출합니다.
+- `GET /v1/agent/runtime/adapter`는 현재 adapter 이름, capability, mode, workspace root, binary 경로 같은 smoke 진단 정보를 노출합니다. `/metrics`는 ACK 상태, control result(success/error/timeout), handler latency를 Prometheus text format으로 노출합니다. `cmd/agent`는 기본적으로 `%APPDATA%\\VibeDeck\\thread-store.json`에 thread history를 저장하고, `THREAD_STORE_FILE`로 override할 수 있습니다.
 - `scripts/cursor_agent_smoke.ps1`는 temp repo를 만들고 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` smoke를 자동 수행합니다. 현재 Windows + WSL + login 완료 환경에서 실제 smoke proof를 확보했습니다.
 - `scripts/extension_host_smoke.ps1`는 이미 떠 있는 extension host TCP bridge에 대해 bridge preflight 후 agent mock smoke를 수행합니다.
 - `scripts/gui_extension_host_smoke.ps1`는 실제 Cursor GUI extension host를 dev extension 모드로 띄우고, built-in cursor-agent provider 경로를 end-to-end로 검증합니다.
