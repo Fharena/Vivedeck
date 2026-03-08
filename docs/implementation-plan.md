@@ -157,10 +157,11 @@
 - patch files를 thread event에 저장해 모바일/IDE가 thread detail만으로 review 상태 복원 가능
 - shared thread history 디스크 영속화(THREAD_STORE_FILE, 기본 %APPDATA%\\VibeDeck\\thread-store.json)
 - 모바일 bootstrap 자동 세팅 v1 (`GET /v1/agent/bootstrap`, agent/signaling/workspace/current thread/recent threads 자동 조회, 최근 host 기억)
+- 모바일 bootstrap 자동 세팅 v2 (extension QR/deep link, `vibedeck://bootstrap` 수신, agent/signaling/thread 자동 적용)
 
 ## 다음 작업 우선순위
 
-1. 모바일 앱 bootstrap v2(QR/discovery/최근 세션)로 자동 세팅 추가 축소
+1. 모바일 앱 bootstrap v3(LAN discovery/최근 세션 추천)로 수동 입력 추가 축소
 2. Cursor 세션 복원/로그 가시성 고도화
 3. Cursor 외 provider(Codex/Claude Code/Antigravity) 확장용 adapter mode 정리
 4. Windows smoke cleanup/agent 잠금 이슈 정리

@@ -28,6 +28,10 @@ import {
   type ThreadPanelController,
   type ThreadPanelWebviewPanelLike,
 } from "./threadPanelController.js";
+import {
+  createMobileBootstrapController,
+  type MobileBootstrapController,
+} from "./mobileBootstrapController.js";
 
 type BridgeMode = "command" | "mock";
 type CommandProviderMode = "builtin_cursor_agent" | "external";
@@ -177,6 +181,7 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
   private readonly vscode: BridgeExtensionVscodeLike;
   private readonly localAgent: LocalAgentController;
   private readonly threadPanel: ThreadPanelController;
+  private readonly mobileBootstrap: MobileBootstrapController;
   private activeBridge: ActiveBridge | undefined;
   private statusBarItem: BridgeExtensionStatusBarItemLike | undefined;
   private lastBridgeError: string | undefined;
@@ -195,6 +200,7 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
         },
       });
     this.threadPanel = createThreadPanelController(this.vscode);
+    this.mobileBootstrap = createMobileBootstrapController(this.vscode);
   }
 
   async activate(context: BridgeExtensionContextLike): Promise<void> {
@@ -256,6 +262,16 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
       }),
     );
     context.subscriptions.push(
+      this.vscode.commands.registerCommand("vibedeckBridge.openMobileBootstrap", async () => {
+        await this.mobileBootstrap.openOrReveal();
+      }),
+    );
+    context.subscriptions.push(
+      this.vscode.commands.registerCommand("vibedeckBridge.copyMobileBootstrap", async () => {
+        await this.mobileBootstrap.copyLink();
+      }),
+    );
+    context.subscriptions.push(
       this.vscode.workspace.onDidChangeConfiguration((event) => {
         if (!event.affectsConfiguration("vibedeckBridge")) {
           return;
@@ -273,6 +289,7 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
   }
 
   async deactivate(): Promise<void> {
+    this.mobileBootstrap.dispose();
     this.threadPanel.dispose();
     await this.stopServer(false);
   }

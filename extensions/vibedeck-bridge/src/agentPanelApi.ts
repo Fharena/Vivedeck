@@ -46,6 +46,29 @@ export interface AgentPanelThreadDetail {
   events: AgentPanelThreadEvent[];
 }
 
+export interface AgentPanelBootstrapAdapter {
+  name: string;
+  mode: string;
+  provider: string;
+  ready: boolean;
+}
+
+export interface AgentPanelBootstrapThread {
+  id: string;
+  title: string;
+  updatedAt: number;
+  current: boolean;
+}
+
+export interface AgentPanelBootstrap {
+  agentBaseUrl: string;
+  signalingBaseUrl: string;
+  workspaceRoot: string;
+  currentThreadId: string;
+  adapter: AgentPanelBootstrapAdapter;
+  recentThreads: AgentPanelBootstrapThread[];
+}
+
 export interface AgentPanelEnvelope {
   sid: string;
   rid: string;
@@ -61,6 +84,7 @@ export interface AgentPanelEnvelopeResponse {
 
 export interface AgentPanelApi {
   runtimeAdapter(baseUrl: string): Promise<AgentPanelAdapterRuntime>;
+  bootstrap(baseUrl: string): Promise<AgentPanelBootstrap>;
   runProfiles(baseUrl: string): Promise<AgentPanelRunProfile[]>;
   threads(baseUrl: string): Promise<AgentPanelThreadSummary[]>;
   threadDetail(baseUrl: string, threadId: string): Promise<AgentPanelThreadDetail>;
@@ -94,6 +118,29 @@ class DefaultAgentPanelApi implements AgentPanelApi {
       workspaceRoot: text(body.workspaceRoot),
       binaryPath: text(body.binaryPath),
       notes: stringArray(body.notes),
+    };
+  }
+
+  async bootstrap(baseUrl: string): Promise<AgentPanelBootstrap> {
+    const body = await requestJson(baseUrl, "/v1/agent/bootstrap");
+    const adapterSource = objectValue(body.adapter);
+    return {
+      agentBaseUrl: text(body.agentBaseUrl),
+      signalingBaseUrl: text(body.signalingBaseUrl),
+      workspaceRoot: text(body.workspaceRoot),
+      currentThreadId: text(body.currentThreadId),
+      adapter: {
+        name: text(adapterSource.name),
+        mode: text(adapterSource.mode),
+        provider: text(adapterSource.provider),
+        ready: adapterSource.ready === true,
+      },
+      recentThreads: objectArray(body.recentThreads).map((item) => ({
+        id: text(item.id),
+        title: text(item.title),
+        updatedAt: numberValue(item.updatedAt),
+        current: item.current === true,
+      })),
     };
   }
 

@@ -129,6 +129,16 @@ class AppController extends ChangeNotifier {
     await refreshStatus();
   }
 
+  Future<void> applyBootstrapUri(Uri uri) {
+    if (!_isBootstrapUri(uri)) {
+      return Future.value();
+    }
+
+    return _run('Bootstrap 링크 적용', () async {
+      await _applyBootstrapUriRaw(uri);
+    });
+  }
+
   Future<void> useRecentHost(SavedHostEntry host) {
     agentBaseUrl = host.agentBaseUrl;
     if (host.signalingBaseUrl.trim().isNotEmpty) {
@@ -136,6 +146,36 @@ class AppController extends ChangeNotifier {
     }
     notifyListeners();
     return refreshStatus();
+  }
+
+  bool _isBootstrapUri(Uri uri) {
+    return uri.scheme.toLowerCase() == 'vibedeck' &&
+        uri.host.toLowerCase() == 'bootstrap';
+  }
+
+  Future<void> _applyBootstrapUriRaw(Uri uri) async {
+    final agent = uri.queryParameters['agent']?.trim() ?? '';
+    final signaling = uri.queryParameters['signaling']?.trim() ?? '';
+    final thread = uri.queryParameters['thread']?.trim() ?? '';
+
+    if (agent.isEmpty && signaling.isEmpty && thread.isEmpty) {
+      return;
+    }
+
+    if (agent.isNotEmpty) {
+      agentBaseUrl = agent;
+    }
+    if (signaling.isNotEmpty) {
+      signalingBaseUrl = signaling;
+    }
+    if (thread.isNotEmpty) {
+      currentThreadId = thread;
+    }
+
+    _rememberCurrentHost();
+    await _persistSettings();
+    notifyListeners();
+    await _refreshStatusRaw();
   }
 
   void updateAgentBaseUrl(String value) {

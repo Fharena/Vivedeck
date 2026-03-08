@@ -66,14 +66,14 @@ docs/
 - 실행 프로파일 목록은 agent가 동적으로 제공
 - 실행 결과는 status/summary/top errors뿐 아니라 전체 출력까지 모바일 검토 화면에 표시
 - 모바일 상태 화면이 `GET /v1/agent/bootstrap`로 agent/signaling/workspace/current thread/recent threads를 자동 조회해 기본 연결값을 채움
-- 모바일 앱이 최근 연결 host를 기억하고 다시 불러올 수 있음
-- Cursor는 첫 번째 provider이며, 장기적으로는 다른 AI IDE provider도 같은 `WorkspaceAdapter` 계약에 맞춰 붙이는 구조를 목표로 함
+- Cursor extension이 `VibeDeck: Open Mobile Bootstrap` / `VibeDeck: Copy Mobile Bootstrap Link`로 LAN 기준 QR/deep link(`vibedeck://bootstrap`)를 제공
+- 모바일 앱이 deep link를 수신하면 agent/signaling/thread를 즉시 적용하고, 최근 연결 host도 함께 기억함
 
 ## 세팅 방향
 
-- 모바일 앱은 `GET /v1/agent/bootstrap`와 최근 host 기억을 사용해 agent/signaling/thread 기본값을 자동 채우고, 다음 단계에서 QR/discovery로 수동 입력을 더 줄이는 방향으로 유지
+- 모바일 앱은 `GET /v1/agent/bootstrap`, 최근 host 기억, `vibedeck://bootstrap` deep link를 사용해 URL 입력을 거의 제거하는 방향으로 유지
 - IDE 쪽은 extension 또는 배포 가능한 패키지로 최소 세팅만 요구하는 방향으로 유지
-- 현재는 `extensions/vibedeck-bridge` VSIX, extension local agent 자동 부트스트랩, shared thread history 영속화, 모바일 bootstrap 자동 세팅 v1까지 갖춘 상태입니다. 다음 단계는 QR/discovery 기반 bootstrap v2와 provider 다변화입니다.
+- 현재는 `extensions/vibedeck-bridge` VSIX, extension local agent 자동 부트스트랩, shared thread history 영속화, 모바일 bootstrap 자동 세팅 v2(QR/deep link)까지 갖춘 상태입니다. 다음 단계는 LAN discovery와 provider 다변화입니다.
 
 ## 로컬 개발
 
@@ -192,7 +192,7 @@ shared thread history는 기본적으로 디스크에 영속화됩니다.
 
 ### 모바일 Bootstrap API
 
-모바일 앱은 `GET /v1/agent/bootstrap`를 먼저 호출해 agent/signaling/workspace/adapter/current thread/recent threads 기본값을 읽습니다.
+모바일 앱은 `GET /v1/agent/bootstrap`를 먼저 호출해 agent/signaling/workspace/adapter/current thread/recent threads 기본값을 읽고, extension이 생성한 `vibedeck://bootstrap` deep link를 수신하면 해당 값을 바로 적용합니다.
 
 ```json
 {
@@ -274,13 +274,15 @@ command mode built-in provider smoke는 세 단계로 검증합니다.
 ```powershell
 npm --prefix extensions/vibedeck-bridge run smoke:provider
 npm --prefix extensions/vibedeck-bridge run smoke:extension
+npm --prefix extensions/vibedeck-bridge run smoke:panel
 npm --prefix extensions/vibedeck-bridge run smoke:bootstrap
+npm --prefix extensions/vibedeck-bridge run smoke:mobile-bootstrap
 ```
-
 - `smoke:provider`는 built-in provider와 command bridge의 low-level 경로를 검증합니다.
 - `smoke:extension`은 `extension.ts -> bridgeExtensionController -> built-in provider -> TCP bridge` 활성화 경로를 검증합니다.
 - `smoke:panel`은 `openThreadPanel -> agent HTTP -> shared thread refresh/action` 경로를 검증합니다.
 - `smoke:bootstrap`은 extension이 local agent lifecycle과 panel agent URL을 같이 관리하는 자동 부트스트랩 경로를 검증합니다.
+- `smoke:mobile-bootstrap`은 extension이 LAN host를 고르고 QR/deep link를 생성해 모바일 bootstrap 정보를 노출하는 경로를 검증합니다.
 - `VibeDeck: Copy Smoke Command`는 mock mode에서는 `extension_host_smoke.ps1`, built-in command mode에서는 `npm --prefix extensions/vibedeck-bridge run smoke:extension` 명령을 복사합니다.
 
 실제 GUI extension host + built-in provider smoke는 아래 스크립트로 검증합니다.
@@ -294,11 +296,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\gui_extension_host_smoke.ps1 
 - `mock` 모드는 실제 extension host 안에서 등록된 mock command를 통해 `Prompt -> Patch -> Apply -> Run` smoke를 검증합니다.
 - `command` 모드의 기본값은 built-in `cursor-agent` provider이며, 별도 외부 command ID 없이도 기본 `vibedeck.*` 매핑으로 시작할 수 있습니다.
 - extension은 bridge와 local agent를 함께 관리할 수 있고, panel은 기본적으로 `agent.host/port`를 따라갑니다.
-- `smoke:extension`으로 저장소 안의 activation path를 자동 검증하고, `smoke:bootstrap`으로 local agent 자동 부트스트랩 경로를 검증합니다.
+- `smoke:extension`으로 저장소 안의 activation path를 자동 검증하고, `smoke:bootstrap`으로 local agent 자동 부트스트랩 경로를, `smoke:mobile-bootstrap`으로 QR/deep link 경로를 검증합니다.
 - `gui_extension_host_smoke.ps1`로 실제 Cursor GUI extension host + real `cursor-agent` 경로까지 검증했습니다.
 - built-in provider와 Go `cursor_agent_cli` adapter는 둘 다 ignored 파일을 기본 비동기화로 두고, 명시 allowlist와 일치하는 항목만 temp worktree snapshot에 복사합니다.
 - 외부 대시보드용 Prometheus scrape endpoint(`/metrics`)와 control handler latency/timeout 메트릭을 제공합니다.
-- 현재 남은 큰 과제는 모바일 앱 자동 세팅 bootstrap, Cursor 외 provider 확장, Windows cleanup warning 정리, timeout budget 운영 설정 외부화, 설치 산출물 릴리스 자동화입니다.
+- 현재 남은 큰 과제는 모바일 LAN discovery, Cursor 세션/로그 가시성 고도화, Cursor 외 provider 확장, Windows cleanup warning 정리, timeout budget 운영 설정 외부화, 설치 산출물 릴리스 자동화입니다.
 - Windows에서는 smoke 종료 직후 `agent.exe` 잠금 때문에 temp root cleanup warning이 남을 수 있습니다.
 
 ### VSIX 패키징
@@ -315,7 +317,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package_vibedeck_bridge.ps1 -
 
 추가 옵션:
 
-- `-RunSmoke`: package 전 `smoke:provider`, `smoke:extension`, `smoke:panel`, `smoke:bootstrap` 같이 실행
+- `-RunSmoke`: package 전 `smoke:provider`, `smoke:extension`, `smoke:panel`, `smoke:bootstrap`, `smoke:mobile-bootstrap` 같이 실행
 - `-SkipCheck`: `npm run check` 생략
 
 생성 후 설치 예시:
