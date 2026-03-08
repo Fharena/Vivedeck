@@ -20,7 +20,7 @@
 
 - `AppController`가 화면 상태와 제어 경로(HTTP/DIRECT) 라우팅을 단일 진입점으로 관리
 - `AgentApi`(`mobile/flutter_app/lib/services/agent_api.dart`)가 HTTP 요청/오류 처리 담당
-- `AppController`가 `/v1/agent/runtime/metrics`를 조회해 ACK RTT/queue depth/transport split 메트릭을 상태 화면에 반영
+- `AppController`가 `/v1/agent/runtime/metrics`를 조회해 ACK RTT/queue depth/transport split 메트릭을 상태 화면에 반영하고, 외부 수집기는 `/metrics` Prometheus endpoint를 scrape할 수 있습니다.
 - 기본 제어 메시지 전송 흐름:
   1. `PROMPT_SUBMIT` / `PATCH_APPLY` / `RUN_PROFILE` envelope 전송
   2. 응답 envelope 파싱
@@ -66,7 +66,7 @@ TypeScript 브리지 패키지 구성:
 - `WORKSPACE_ADAPTER_MODE=cursor_agent_cli`가 설정되면 bridge 대신 `CursorAgentCLIAdapter`를 사용합니다.
 - `CursorBridgeAdapter`(`internal/agent/cursor_bridge_adapter.go`)가 `name`, `capabilities`, `getContext`, `submitTask`, `getPatch`, `applyPatch`, `runProfile`, `getRunResult`, `openLocation` RPC를 담당합니다.
 - `CursorAgentCLIAdapter`(`internal/agent/cursor_agent_cli_adapter.go`)는 현재 workspace 상태를 temp worktree에 동기화하고, 네이티브 CLI 또는 WSL distro 내부의 실제 binary를 직접 실행해 diff만 회수합니다. ignored 파일은 기본 제외하고 `CURSOR_AGENT_SYNC_IGNORED_JSON` allowlist와 일치하는 항목만 snapshot에 포함합니다.
-- `GET /v1/agent/runtime/adapter`는 현재 adapter 이름, capability, mode, workspace root, binary 경로 같은 smoke 진단 정보를 노출합니다.
+- `GET /v1/agent/runtime/adapter`는 현재 adapter 이름, capability, mode, workspace root, binary 경로 같은 smoke 진단 정보를 노출합니다. `/metrics`는 ACK 상태, control result(success/error/timeout), handler latency를 Prometheus text format으로 노출합니다.
 - `scripts/cursor_agent_smoke.ps1`는 temp repo를 만들고 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` smoke를 자동 수행합니다. 현재 Windows + WSL + login 완료 환경에서 실제 smoke proof를 확보했습니다.
 - `scripts/extension_host_smoke.ps1`는 이미 떠 있는 extension host TCP bridge에 대해 bridge preflight 후 agent mock smoke를 수행합니다.
 - `scripts/gui_extension_host_smoke.ps1`는 실제 Cursor GUI extension host를 dev extension 모드로 띄우고, built-in cursor-agent provider 경로를 end-to-end로 검증합니다.
@@ -95,7 +95,8 @@ TypeScript 브리지 패키지 구성:
 - P2P(DataChannel) 응답은 retryable pending ACK로 등록하고, 원본 envelope와 마지막 전송 시각을 함께 보존합니다.
 - `P2PSessionManager`가 backoff 간격으로 재전송을 수행하고, 최대 재시도 초과 또는 재전송 실패 시 세션 상태를 `reconnecting`으로 전이합니다.
 - 세션 종료 시 transport별 pending ACK를 정리해 stale 상태를 남기지 않습니다.
-- `AckTracker.Metrics()`가 pending count/max queue depth, transport split, ack RTT(last/avg/max), retry/expired/exhausted 집계를 제공하고 HTTP `/v1/agent/runtime/metrics`로 노출됩니다.
+- `AckTracker.Metrics()`가 pending count/max queue depth, transport split, ack RTT(last/avg/max), retry/expired/exhausted 집계를 제공하고 HTTP `/v1/agent/runtime/metrics`와 `/metrics`로 노출됩니다.
+- `ControlMetrics`가 HTTP/P2P control request count(success/error/timeout)와 handler latency(last/avg/max)를 message type/path별로 집계해 외부 대시보드가 바로 scrape할 수 있게 합니다.
 
 ## 시그널링 레이어(WebRTC 연동)
 

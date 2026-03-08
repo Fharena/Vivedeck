@@ -54,10 +54,11 @@ type p2pRuntime struct {
 }
 
 type P2PSessionManager struct {
-	stateManager  *runtime.StateManager
-	ackTracker    *runtime.AckTracker
-	controlRouter *ControlRouter
-	httpClient    *http.Client
+	stateManager   *runtime.StateManager
+	ackTracker     *runtime.AckTracker
+	controlMetrics *ControlMetrics
+	controlRouter  *ControlRouter
+	httpClient     *http.Client
 
 	defaultSignalingBaseURL string
 
@@ -86,6 +87,12 @@ func NewP2PSessionManager(stateManager *runtime.StateManager, ackTracker *runtim
 			UpdatedAt: time.Now().UTC().UnixMilli(),
 		},
 	}
+}
+
+func (m *P2PSessionManager) SetControlMetrics(metrics *ControlMetrics) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.controlMetrics = metrics
 }
 
 func (m *P2PSessionManager) Start(ctx context.Context, req StartP2PRequest) (P2PSessionStatus, error) {
@@ -390,9 +397,13 @@ func (m *P2PSessionManager) peerMessageLoop(ctx context.Context, rt *p2pRuntime)
 				continue
 			}
 
+			startedAt := time.Now()
 			handleCtx, cancel := context.WithTimeout(ctx, controlEnvelopeTimeout(env.Type))
 			result, err := m.controlRouter.HandleEnvelope(handleCtx, env)
 			cancel()
+			if env.Type != protocol.TypeCmdAck && m.controlMetrics != nil {
+				m.controlMetrics.Observe(env.Type, ControlPathP2P, time.Since(startedAt), err)
+			}
 			if err != nil {
 				m.setLastError(fmt.Sprintf("control envelope handling failed: %v", err))
 			}

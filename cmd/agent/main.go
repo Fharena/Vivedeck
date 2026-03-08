@@ -37,9 +37,11 @@ func main() {
 
 	stateManager := runtime.NewStateManager(runtime.DefaultManagerConfig())
 	ackTracker := runtime.NewAckTracker(2 * time.Second)
+	controlMetrics := agent.NewControlMetrics()
 	p2pManager := agent.NewP2PSessionManager(stateManager, ackTracker, orchestrator, signalingBaseURL)
+	p2pManager.SetControlMetrics(controlMetrics)
 
-	server := agent.NewHTTPServer(adapter, orchestrator, stateManager, ackTracker, p2pManager)
+	server := agent.NewHTTPServer(adapter, orchestrator, stateManager, ackTracker, controlMetrics, p2pManager)
 
 	log.Printf("agent server listening on %s (adapter=%s)", addr, adapter.Name())
 	if err := http.ListenAndServe(addr, server.Handler()); err != nil {

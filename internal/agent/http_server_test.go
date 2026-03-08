@@ -2,9 +2,11 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,26 +14,29 @@ import (
 	"github.com/Fharena/Vivedeck/internal/runtime"
 )
 
-func newTestHTTPServer() (*HTTPServer, *runtime.AckTracker) {
+func newTestHTTPServer() (*HTTPServer, *runtime.AckTracker, *ControlMetrics) {
 	adapter := NewMockAdapter()
 	orch := NewOrchestrator(adapter, DefaultRunProfiles())
 	stateManager := runtime.NewStateManager(runtime.DefaultManagerConfig())
 	ackTracker := runtime.NewAckTracker(2 * time.Second)
+	controlMetrics := NewControlMetrics()
 	p2pManager := NewP2PSessionManager(stateManager, ackTracker, orch, "http://127.0.0.1:8081")
+	p2pManager.SetControlMetrics(controlMetrics)
 
 	server := NewHTTPServer(
 		adapter,
 		orch,
 		stateManager,
 		ackTracker,
+		controlMetrics,
 		p2pManager,
 	)
 
-	return server, ackTracker
+	return server, ackTracker, controlMetrics
 }
 
 func TestHTTPServerHandleEnvelope(t *testing.T) {
-	server, _ := newTestHTTPServer()
+	server, _, _ := newTestHTTPServer()
 
 	body := []byte(`{"sid":"sid-1","rid":"rid-1","seq":1,"ts":1700000000000,"type":"PROMPT_SUBMIT","payload":{"prompt":"Fix auth","contextOptions":{}}}`)
 
@@ -46,7 +51,7 @@ func TestHTTPServerHandleEnvelope(t *testing.T) {
 }
 
 func TestHTTPServerRuntimeState(t *testing.T) {
-	server, _ := newTestHTTPServer()
+	server, _, _ := newTestHTTPServer()
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/agent/runtime/state", bytes.NewBufferString(`{"action":"begin_signaling"}`))
 	rec := httptest.NewRecorder()
@@ -59,7 +64,7 @@ func TestHTTPServerRuntimeState(t *testing.T) {
 }
 
 func TestHTTPServerRuntimeMetrics(t *testing.T) {
-	server, tracker := newTestHTTPServer()
+	server, tracker, controlMetrics := newTestHTTPServer()
 
 	env, err := protocol.NewEnvelope("sid-1", "rid-metrics", 1, protocol.TypePromptAck, map[string]any{
 		"jobId": "job_1",
@@ -70,6 +75,8 @@ func TestHTTPServerRuntimeMetrics(t *testing.T) {
 	tracker.RegisterEnvelope(env, runtime.AckTransportHTTP, false)
 	tracker.Ack(env.RID)
 
+	controlMetrics.Observe(protocol.TypePromptSubmit, ControlPathHTTP, 25*time.Millisecond, nil)
+
 	req := httptest.NewRequest(http.MethodGet, "/v1/agent/runtime/metrics", nil)
 	rec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(rec, req)
@@ -79,8 +86,10 @@ func TestHTTPServerRuntimeMetrics(t *testing.T) {
 	}
 
 	var body struct {
-		State runtime.ConnectionState `json:"state"`
-		Ack   runtime.AckMetrics      `json:"ack"`
+		State     runtime.ConnectionState `json:"state"`
+		P2PActive bool                    `json:"p2pActive"`
+		Ack       runtime.AckMetrics      `json:"ack"`
+		Control   ControlMetricsSnapshot  `json:"control"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode runtime metrics: %v", err)
@@ -95,10 +104,19 @@ func TestHTTPServerRuntimeMetrics(t *testing.T) {
 	if body.Ack.PendingByTransport[string(runtime.AckTransportHTTP)] != 0 {
 		t.Fatalf("expected http pending 0")
 	}
+	if body.Control.Totals.Requests != 1 {
+		t.Fatalf("expected control request count 1, got %d", body.Control.Totals.Requests)
+	}
+	if body.Control.ByPath[ControlPathHTTP].Successes != 1 {
+		t.Fatalf("expected http control success count 1, got %+v", body.Control.ByPath[ControlPathHTTP])
+	}
+	if body.Control.ByType[string(protocol.TypePromptSubmit)].Requests != 1 {
+		t.Fatalf("expected prompt_submit control count 1, got %+v", body.Control.ByType)
+	}
 }
 
 func TestHTTPServerRuntimeAdapter(t *testing.T) {
-	server, _ := newTestHTTPServer()
+	server, _, _ := newTestHTTPServer()
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/agent/runtime/adapter", nil)
 	rec := httptest.NewRecorder()
@@ -124,7 +142,7 @@ func TestHTTPServerRuntimeAdapter(t *testing.T) {
 }
 
 func TestHTTPServerInboundCmdAckClearsPending(t *testing.T) {
-	server, tracker := newTestHTTPServer()
+	server, tracker, _ := newTestHTTPServer()
 
 	submitReq := httptest.NewRequest(
 		http.MethodPost,
@@ -195,8 +213,48 @@ func TestHTTPServerInboundCmdAckClearsPending(t *testing.T) {
 	}
 }
 
+func TestHTTPServerPrometheusMetricsEndpoint(t *testing.T) {
+	server, tracker, controlMetrics := newTestHTTPServer()
+	server.stateManager.BeginSignaling()
+
+	env, err := protocol.NewEnvelope("sid-1", "rid-prometheus", 1, protocol.TypePromptAck, map[string]any{
+		"jobId": "job_1",
+	})
+	if err != nil {
+		t.Fatalf("build prometheus envelope: %v", err)
+	}
+	tracker.RegisterEnvelope(env, runtime.AckTransportHTTP, false)
+	tracker.Ack(env.RID)
+
+	controlMetrics.Observe(protocol.TypePromptSubmit, ControlPathHTTP, 120*time.Millisecond, nil)
+	controlMetrics.Observe(protocol.TypePatchApply, ControlPathP2P, 30*time.Millisecond, context.DeadlineExceeded)
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain") {
+		t.Fatalf("expected prometheus content type, got %q", rec.Header().Get("Content-Type"))
+	}
+
+	body := rec.Body.String()
+	for _, pattern := range []string{
+		`vibedeck_runtime_state{state="SIGNALING"} 1`,
+		`vibedeck_ack_acked_total 1`,
+		`vibedeck_control_requests_total{type="PROMPT_SUBMIT",path="http",result="success"} 1`,
+		`vibedeck_control_requests_total{type="PATCH_APPLY",path="p2p",result="timeout"} 1`,
+	} {
+		if !strings.Contains(body, pattern) {
+			t.Fatalf("expected prometheus output to contain %q\n%s", pattern, body)
+		}
+	}
+}
+
 func TestHTTPServerP2PStatusEndpoint(t *testing.T) {
-	server, _ := newTestHTTPServer()
+	server, _, _ := newTestHTTPServer()
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/agent/p2p/status", nil)
 	rec := httptest.NewRecorder()
