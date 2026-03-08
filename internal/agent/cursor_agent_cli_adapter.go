@@ -29,6 +29,7 @@ type CursorAgentCLIConfig struct {
 	CursorAgentBin       string
 	CursorAgentArgs      []string
 	CursorAgentEnv       []string
+	SyncIgnoredPaths     []string
 	CursorAgentUseWSL    bool
 	CursorAgentWSLDistro string
 	CursorAgentWSLBinary string
@@ -113,6 +114,11 @@ func DefaultCursorAgentCLIConfig() (CursorAgentCLIConfig, error) {
 		return CursorAgentCLIConfig{}, err
 	}
 
+	syncIgnoredPaths, err := jsonStringArrayEnv("CURSOR_AGENT_SYNC_IGNORED_JSON")
+	if err != nil {
+		return CursorAgentCLIConfig{}, err
+	}
+
 	gitBin := strings.TrimSpace(os.Getenv("CURSOR_AGENT_GIT_BIN"))
 	if gitBin == "" {
 		gitBin = "git"
@@ -143,6 +149,7 @@ func DefaultCursorAgentCLIConfig() (CursorAgentCLIConfig, error) {
 		CursorAgentBin:       cursorAgentBin,
 		CursorAgentArgs:      cursorAgentArgs,
 		CursorAgentEnv:       cursorAgentEnv,
+		SyncIgnoredPaths:     sanitizeSyncPathspecs(syncIgnoredPaths),
 		CursorAgentUseWSL:    useWSL,
 		CursorAgentWSLDistro: wslDistro,
 		CursorAgentWSLBinary: wslBinary,
@@ -445,22 +452,56 @@ func (a *CursorAgentCLIAdapter) syncWorkspaceIntoWorktree(ctx context.Context, w
 		}
 	}
 
-	untrackedOutput, err := a.runGit(ctx, a.cfg.WorkspaceRoot, "ls-files", "--others", "--exclude-standard")
+	snapshotFiles, err := a.listSnapshotFiles(ctx)
 	if err != nil {
 		return err
 	}
-	for _, line := range strings.Split(strings.ReplaceAll(untrackedOutput, "\r\n", "\n"), "\n") {
-		path := strings.TrimSpace(line)
-		if path == "" {
-			continue
-		}
+	for _, path := range snapshotFiles {
 		sourcePath := filepath.Join(a.cfg.WorkspaceRoot, filepath.FromSlash(path))
 		targetPath := filepath.Join(worktreeDir, filepath.FromSlash(path))
 		if err := copyFile(sourcePath, targetPath); err != nil {
-			return fmt.Errorf("copy untracked file %s: %w", path, err)
+			return fmt.Errorf("copy workspace snapshot file %s: %w", path, err)
 		}
 	}
 	return nil
+}
+
+func (a *CursorAgentCLIAdapter) listSnapshotFiles(ctx context.Context) ([]string, error) {
+	files := make([]string, 0)
+	seen := make(map[string]struct{})
+
+	appendGitOutput := func(output string) {
+		for _, line := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
+			path := strings.TrimSpace(line)
+			if path == "" {
+				continue
+			}
+			if _, ok := seen[path]; ok {
+				continue
+			}
+			seen[path] = struct{}{}
+			files = append(files, path)
+		}
+	}
+
+	untrackedOutput, err := a.runGit(ctx, a.cfg.WorkspaceRoot, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	appendGitOutput(untrackedOutput)
+
+	if len(a.cfg.SyncIgnoredPaths) > 0 {
+		args := []string{"ls-files", "--others", "--ignored", "--exclude-standard", "--"}
+		args = append(args, a.cfg.SyncIgnoredPaths...)
+		ignoredOutput, err := a.runGit(ctx, a.cfg.WorkspaceRoot, args...)
+		if err != nil {
+			return nil, fmt.Errorf("list ignored snapshot files: %w", err)
+		}
+		appendGitOutput(ignoredOutput)
+	}
+
+	sort.Strings(files)
+	return files, nil
 }
 
 func (a *CursorAgentCLIAdapter) commitWorktreeBaseline(ctx context.Context, worktreeDir string) error {
@@ -1000,6 +1041,23 @@ func platformShellCommand(command string) (string, []string) {
 
 func boolEnv(key string) bool {
 	return trustWorkspaceEnv(key, false)
+}
+func sanitizeSyncPathspecs(values []string) []string {
+	seen := make(map[string]struct{})
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func trustWorkspaceEnv(key string, fallback bool) bool {

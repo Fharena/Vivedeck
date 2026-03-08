@@ -163,6 +163,14 @@
           },
           "description": "builtin cursor-agent provider에 전달할 추가 환경변수 목록입니다. 형식은 KEY=VALUE 입니다."
         },
+        "vibedeckBridge.cursorAgent.syncIgnoredPaths": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "temp worktree snapshot에 복사할 ignored 파일 pathspec allowlist입니다. 비워두면 ignored 파일은 복사하지 않습니다."
+        },
         "vibedeckBridge.cursorAgent.trustWorkspace": {
           "type": "boolean",
           "default": true,

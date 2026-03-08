@@ -113,7 +113,7 @@ go run ./cmd/agent
 
 - 네이티브 `cursor-agent` 또는 WSL distro 안의 `~/.local/bin/cursor-agent`/`~/.local/bin/agent`를 탐지
 - 감지한 CLI를 임시 git worktree에서 실행
-- 현재 workspace의 tracked 변경과 untracked 파일을 temp worktree에 동기화
+- 현재 workspace의 tracked 변경, untracked 파일, 그리고 명시 allowlist와 일치하는 ignored 파일만 temp worktree에 동기화
 - agent가 만든 diff만 `PATCH_READY`로 반환
 - review 승인 후 실제 workspace에는 `git apply`로 반영
 
@@ -124,6 +124,7 @@ go run ./cmd/agent
 - `CURSOR_AGENT_TRUST_WORKSPACE`: 기본값 `true`, CLI 인자에 `--trust`가 없으면 자동 추가
 - `CURSOR_AGENT_MODEL`: 기본값 `auto`, CLI 인자에 model이 없으면 `--model <값>` 자동 추가
 - `CURSOR_AGENT_ENV_JSON`: CLI 실행 환경변수를 JSON 배열로 지정할 때 사용
+- `CURSOR_AGENT_SYNC_IGNORED_JSON`: temp worktree snapshot에 복사할 ignored 파일 pathspec allowlist를 JSON 배열로 지정할 때 사용
 - `CURSOR_AGENT_USE_WSL`: Windows에서 WSL 안의 Cursor CLI를 사용할 때 `true`
 - `CURSOR_AGENT_WSL_DISTRO`: 특정 WSL distro를 강제로 지정할 때 사용, 비우면 자동 탐지
 - `CURSOR_AGENT_WORKSPACE_ROOT`: workspace root override
@@ -164,8 +165,9 @@ npm --prefix extensions/vibedeck-bridge run build
 2. extension 설정에서 `vibedeckBridge.mode`를 `mock` 또는 `command`로 지정
 3. command mode를 쓸 때는 기본값 `vibedeckBridge.commandProvider=builtin_cursor_agent` 그대로 두면 extension이 기본 `vibedeck.*` 명령을 직접 등록
 4. Windows에서 Cursor CLI가 WSL에만 있으면 `vibedeckBridge.cursorAgent.useWsl=true`, 필요하면 `vibedeckBridge.cursorAgent.wslDistro=Ubuntu` 설정
-5. `VibeDeck: Validate Commands`로 command registry readiness 확인
-6. `VibeDeck: Copy Agent Env`로 bridge 주소를 복사해 agent 실행 터미널에 붙여 넣기
+5. `.env.local` 같은 ignored 파일이 temp worktree snapshot에 필요하면 `vibedeckBridge.cursorAgent.syncIgnoredPaths=[".env.local"]`처럼 명시 allowlist로만 추가
+6. `VibeDeck: Validate Commands`로 command registry readiness 확인
+7. `VibeDeck: Copy Agent Env`로 bridge 주소를 복사해 agent 실행 터미널에 붙여 넣기
 
 ```powershell
 $env:CURSOR_BRIDGE_TCP_ADDR = "127.0.0.1:7797"
@@ -201,7 +203,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\gui_extension_host_smoke.ps1 
 - `mock` 모드는 실제 extension host 안에서 등록된 mock command를 통해 `Prompt -> Patch -> Apply -> Run` smoke를 검증합니다.
 - `command` 모드의 기본값은 built-in `cursor-agent` provider이며, 별도 외부 command ID 없이도 기본 `vibedeck.*` 매핑으로 시작할 수 있습니다.
 - `smoke:extension`으로 저장소 안의 activation path를 자동 검증하고, `gui_extension_host_smoke.ps1`로 실제 Cursor GUI extension host + real `cursor-agent` 경로까지 검증했습니다.
-- 현재 남은 큰 과제는 ignored/generated 파일 sync 정책, 패키징/온보딩, Windows cleanup warning 정리입니다.
+- built-in provider와 Go `cursor_agent_cli` adapter는 둘 다 ignored 파일을 기본 비동기화로 두고, 명시 allowlist와 일치하는 항목만 temp worktree snapshot에 복사합니다.
+- 현재 남은 큰 과제는 운영 메트릭 외부 대시보드 연동, 패키징/온보딩, Windows cleanup warning 정리입니다.
 - Windows에서는 smoke 종료 직후 `agent.exe` 잠금 때문에 temp root cleanup warning이 남을 수 있습니다.
 
 ## 문서
