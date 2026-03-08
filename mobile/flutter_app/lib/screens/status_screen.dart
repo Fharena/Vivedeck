@@ -49,6 +49,7 @@ class _StatusScreenState extends State<StatusScreen> {
       animation: widget.controller,
       builder: (context, _) {
         final state = widget.controller.connectionState;
+        final runtime = widget.controller.adapterRuntime;
         final resolvedPairingCode =
             widget.controller.directPairingCode.isNotEmpty
                 ? widget.controller.directPairingCode
@@ -63,18 +64,68 @@ class _StatusScreenState extends State<StatusScreen> {
           key: const ValueKey('status-screen'),
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
           children: [
-            Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFFEDF9F6),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFB9E6DA)),
-              ),
-              padding: const EdgeInsets.all(14),
+            _SectionCard(
+              title: '에이전트 런타임',
+              subtitle: '현재 연결된 workspace adapter와 작업 디렉토리를 확인합니다.',
+              accent: const Color(0xFFB9E6DA),
+              background: const Color(0xFFEDF9F6),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('연결 설정', style: Theme.of(context).textTheme.titleMedium),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _MetricPill(
+                        label: 'Adapter',
+                        value: runtime.name.isEmpty ? '-' : runtime.name,
+                      ),
+                      _MetricPill(
+                        label: 'Mode',
+                        value: runtime.mode.isEmpty ? '-' : runtime.mode,
+                      ),
+                      _MetricPill(
+                        label: 'Ready',
+                        value: runtime.ready ? 'true' : 'false',
+                      ),
+                      _MetricPill(
+                        label: 'Thread',
+                        value: widget.controller.currentThreadTitle,
+                      ),
+                      _MetricPill(
+                        label: 'Run Profiles',
+                        value: '${widget.controller.runProfiles.length}',
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 10),
+                  _InfoRow(
+                    label: '작업 디렉토리',
+                    value: runtime.workspaceRoot.isEmpty ? '-' : runtime.workspaceRoot,
+                  ),
+                  _InfoRow(
+                    label: 'binary',
+                    value: runtime.binaryPath.isEmpty ? '-' : runtime.binaryPath,
+                  ),
+                  if (runtime.notes.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text('runtime notes',
+                        style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 6),
+                    ...runtime.notes.map((note) => Text('• $note')),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _SectionCard(
+              title: '연결 설정',
+              subtitle: '앱 시작 후 한 번만 맞추면 이후에는 같은 값을 재사용합니다.',
+              accent: const Color(0xFFD6E9E3),
+              background: Colors.white,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   TextField(
                     controller: _agentUrlController,
                     decoration: const InputDecoration(
@@ -115,18 +166,14 @@ class _StatusScreenState extends State<StatusScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFD6E9E3)),
-              ),
-              padding: const EdgeInsets.all(14),
+            _SectionCard(
+              title: '세션 상태',
+              subtitle: '모바일 앱과 agent 간 제어 경로 상태입니다.',
+              accent: const Color(0xFFD6E9E3),
+              background: Colors.white,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('세션 상태', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
@@ -147,12 +194,17 @@ class _StatusScreenState extends State<StatusScreen> {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  Text(
-                    'sessionId: ${widget.controller.sessionId.isEmpty ? '-' : widget.controller.sessionId}',
+                  _InfoRow(
+                    label: 'sessionId',
+                    value: widget.controller.sessionId.isEmpty
+                        ? '-'
+                        : widget.controller.sessionId,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'pairingCode: ${widget.controller.pairingCode.isEmpty ? '-' : widget.controller.pairingCode}',
+                  _InfoRow(
+                    label: 'pairingCode',
+                    value: widget.controller.pairingCode.isEmpty
+                        ? '-'
+                        : widget.controller.pairingCode,
                   ),
                   if (widget.controller.activity.isNotEmpty) ...[
                     const SizedBox(height: 8),
@@ -172,44 +224,33 @@ class _StatusScreenState extends State<StatusScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFFBF2),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFFFE2B8)),
-              ),
-              padding: const EdgeInsets.all(14),
+            _SectionCard(
+              title: 'ACK Observability',
+              subtitle: '직접 제어와 HTTP 폴백 모두 같은 런타임 지표로 봅니다.',
+              accent: const Color(0xFFFFE2B8),
+              background: const Color(0xFFFFFBF2),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'ACK Observability',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
                       _MetricPill(
                         label: 'Avg RTT',
-                        value:
-                            _msLabel(widget.controller.ackMetrics.avgAckRttMs),
+                        value: _msLabel(widget.controller.ackMetrics.avgAckRttMs),
                       ),
                       _MetricPill(
                         label: 'Last RTT',
-                        value:
-                            _msLabel(widget.controller.ackMetrics.lastAckRttMs),
+                        value: _msLabel(widget.controller.ackMetrics.lastAckRttMs),
                       ),
                       _MetricPill(
                         label: 'Max RTT',
-                        value:
-                            _msLabel(widget.controller.ackMetrics.maxAckRttMs),
+                        value: _msLabel(widget.controller.ackMetrics.maxAckRttMs),
                       ),
                       _MetricPill(
                         label: 'Peak Queue',
-                        value:
-                            '${widget.controller.ackMetrics.maxPendingCount}',
+                        value: '${widget.controller.ackMetrics.maxPendingCount}',
                       ),
                       _MetricPill(
                         label: 'Acked',
@@ -217,8 +258,7 @@ class _StatusScreenState extends State<StatusScreen> {
                       ),
                       _MetricPill(
                         label: 'Retries',
-                        value:
-                            '${widget.controller.ackMetrics.retryDispatchCount}',
+                        value: '${widget.controller.ackMetrics.retryDispatchCount}',
                       ),
                       _MetricPill(
                         label: 'Expired',
@@ -279,21 +319,14 @@ class _StatusScreenState extends State<StatusScreen> {
               label: const Text('상태 갱신'),
             ),
             const SizedBox(height: 12),
-            Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFFF7F8FF),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFDBDFF7)),
-              ),
-              padding: const EdgeInsets.all(14),
+            _SectionCard(
+              title: 'Direct Signaling + WebRTC',
+              subtitle: '가능하면 direct datachannel, 실패 시 HTTP로 폴백합니다.',
+              accent: const Color(0xFFDBDFF7),
+              background: const Color(0xFFF7F8FF),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Direct Signaling + WebRTC',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
                   TextField(
                     controller: _directPairingCodeController,
                     decoration: const InputDecoration(
@@ -312,8 +345,7 @@ class _StatusScreenState extends State<StatusScreen> {
                                   widget.controller.updateDirectPairingCode(
                                     _directPairingCodeController.text,
                                   );
-                                  await widget.controller
-                                      .connectDirectSignaling();
+                                  await widget.controller.connectDirectSignaling();
                                 },
                           icon: const Icon(Icons.usb),
                           label: const Text('Direct 연결'),
@@ -325,8 +357,7 @@ class _StatusScreenState extends State<StatusScreen> {
                           onPressed: widget.controller.isLoading
                               ? null
                               : () async {
-                                  await widget.controller
-                                      .disconnectDirectSignaling();
+                                  await widget.controller.disconnectDirectSignaling();
                                 },
                           icon: const Icon(Icons.usb_off),
                           label: const Text('Direct 종료'),
@@ -364,16 +395,21 @@ class _StatusScreenState extends State<StatusScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    'directSessionId: ${widget.controller.directSessionId.isEmpty ? '-' : widget.controller.directSessionId}',
+                  _InfoRow(
+                    label: 'directSessionId',
+                    value: widget.controller.directSessionId.isEmpty
+                        ? '-'
+                        : widget.controller.directSessionId,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'directDeviceKey: ${widget.controller.directDeviceKey.isEmpty ? '-' : widget.controller.directDeviceKey}',
+                  _InfoRow(
+                    label: 'directDeviceKey',
+                    value: widget.controller.directDeviceKey.isEmpty
+                        ? '-'
+                        : widget.controller.directDeviceKey,
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Control Ready=true 이면 Prompt/Review 액션이 HTTP 대신 DataChannel(DIRECT) 경로를 우선 사용합니다.',
+                    'Control Ready=true 이면 Prompt/검토 액션이 HTTP보다 DIRECT 경로를 우선 사용합니다.',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 8),
@@ -383,43 +419,77 @@ class _StatusScreenState extends State<StatusScreen> {
                   if (widget.controller.directSignalLogs.isEmpty)
                     const Text('로그 없음')
                   else
-                    ...widget.controller.directSignalLogs.take(10).map((log) =>
-                        Text(log,
+                    ...widget.controller.directSignalLogs
+                        .take(10)
+                        .map((log) => Text(log,
                             style: Theme.of(context).textTheme.bodySmall)),
                 ],
               ),
             ),
             const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Runtime Timeline',
-                      style: Theme.of(context).textTheme.titleMedium,
+            _SectionCard(
+              title: 'Runtime Timeline',
+              subtitle: '연결 상태 전이 로그입니다.',
+              accent: const Color(0xFFDCE3ED),
+              background: Colors.white,
+              child: widget.controller.runtimeHistory.isEmpty
+                  ? const Text('히스토리가 없습니다.')
+                  : Column(
+                      children: widget.controller.runtimeHistory
+                          .map(
+                            (event) => ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.timeline),
+                              title: Text(event.state),
+                              subtitle:
+                                  Text(event.note.isEmpty ? '-' : event.note),
+                              trailing: Text(event.atLabel),
+                            ),
+                          )
+                          .toList(),
                     ),
-                    const SizedBox(height: 8),
-                    if (widget.controller.runtimeHistory.isEmpty)
-                      const Text('히스토리가 없습니다.')
-                    else
-                      ...widget.controller.runtimeHistory.map(
-                        (event) => ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: const Icon(Icons.timeline),
-                          title: Text(event.state),
-                          subtitle: Text(event.note.isEmpty ? '-' : event.note),
-                          trailing: Text(event.atLabel),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
             ),
           ],
         );
       },
+    );
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({
+    required this.title,
+    required this.subtitle,
+    required this.child,
+    required this.accent,
+    required this.background,
+  });
+
+  final String title;
+  final String subtitle;
+  final Widget child;
+  final Color accent;
+  final Color background;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accent),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
     );
   }
 }
@@ -454,6 +524,21 @@ class _MetricPill extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Text('$label: $value'),
     );
   }
 }

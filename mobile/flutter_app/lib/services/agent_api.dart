@@ -74,6 +74,38 @@ class AgentApi {
     );
   }
 
+  Future<Map<String, dynamic>> runtimeAdapter(String baseUrl) {
+    return _request(
+      method: 'GET',
+      baseUrl: baseUrl,
+      path: '/v1/agent/runtime/adapter',
+    );
+  }
+
+  Future<Map<String, dynamic>> runProfiles(String baseUrl) {
+    return _request(
+      method: 'GET',
+      baseUrl: baseUrl,
+      path: '/v1/agent/run-profiles',
+    );
+  }
+
+  Future<Map<String, dynamic>> threads(String baseUrl) {
+    return _request(
+      method: 'GET',
+      baseUrl: baseUrl,
+      path: '/v1/agent/threads',
+    );
+  }
+
+  Future<Map<String, dynamic>> threadDetail(String baseUrl, String threadId) {
+    return _request(
+      method: 'GET',
+      baseUrl: baseUrl,
+      path: '/v1/agent/threads/$threadId',
+    );
+  }
+
   Future<Map<String, dynamic>> sendEnvelope(
     String baseUrl,
     Map<String, dynamic> envelope,
@@ -101,7 +133,11 @@ class AgentApi {
       throw AgentApiException(0, 'agent base url is empty');
     }
 
-    final uri = Uri.parse('${normalized.replaceAll(RegExp(r'/+$'), '')}$path');
+    var trimmedBase = normalized;
+    while (trimmedBase.endsWith('/')) {
+      trimmedBase = trimmedBase.substring(0, trimmedBase.length - 1);
+    }
+    final uri = Uri.parse(trimmedBase + path);
 
     late final http.Response response;
     if (method == 'GET') {

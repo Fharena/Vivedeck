@@ -34,22 +34,38 @@ class AppController extends ChangeNotifier {
 
   int pendingAckCount = 0;
   AckMetricsView ackMetrics = const AckMetricsView();
+  AdapterRuntimeView adapterRuntime = const AdapterRuntimeView();
   UnmodifiableListView<RuntimeTransitionView> get runtimeHistory =>
       UnmodifiableListView(_runtimeHistory);
   final List<RuntimeTransitionView> _runtimeHistory = [];
 
   String promptDraft = '';
   String? currentJobId;
+  String currentThreadId = '';
   String patchSummary = '';
   String patchResultStatus = '';
   String patchResultMessage = '';
   String runStatus = '';
   String runSummary = '';
+  String runExcerpt = '';
+  String runOutput = '';
   final List<String> topErrors = [];
 
   UnmodifiableListView<PatchFileView> get patchFiles =>
       UnmodifiableListView(_patchFiles);
   final List<PatchFileView> _patchFiles = [];
+
+  UnmodifiableListView<ThreadSummaryView> get threads =>
+      UnmodifiableListView(_threads);
+  final List<ThreadSummaryView> _threads = [];
+
+  UnmodifiableListView<ThreadEventView> get threadEvents =>
+      UnmodifiableListView(_threadEvents);
+  final List<ThreadEventView> _threadEvents = [];
+
+  UnmodifiableListView<RunProfileView> get runProfiles =>
+      UnmodifiableListView(_runProfiles);
+  final List<RunProfileView> _runProfiles = [];
 
   String directPairingCode = '';
   String directSignalingState = 'IDLE';
@@ -71,6 +87,27 @@ class AppController extends ChangeNotifier {
   int _seq = 1;
 
   String get controlPath => directControlReady ? 'DIRECT' : 'HTTP';
+  ThreadSummaryView? get selectedThreadSummary {
+    for (final thread in _threads) {
+      if (thread.id == currentThreadId) {
+        return thread;
+      }
+    }
+    return null;
+  }
+
+  String get currentThreadTitle {
+    final selected = selectedThreadSummary;
+    if (selected != null) {
+      return selected.title;
+    }
+    if (currentThreadId.isEmpty) {
+      return '새 스레드';
+    }
+    return currentThreadId;
+  }
+
+  String get currentThreadState => selectedThreadSummary?.state ?? 'draft';
 
   void updateAgentBaseUrl(String value) {
     agentBaseUrl = value.trim();
@@ -85,6 +122,31 @@ class AppController extends ChangeNotifier {
   void updateDirectPairingCode(String value) {
     directPairingCode = value.trim();
     notifyListeners();
+  }
+
+  void beginNewThread() {
+    currentThreadId = '';
+    currentJobId = null;
+    promptDraft = '';
+    patchSummary = '';
+    patchResultStatus = '';
+    patchResultMessage = '';
+    runStatus = '';
+    runSummary = '';
+    runExcerpt = '';
+    runOutput = '';
+    topErrors.clear();
+    _patchFiles.clear();
+    _threadEvents.clear();
+    notifyListeners();
+  }
+
+  Future<void> selectThread(String threadId) {
+    currentThreadId = threadId.trim();
+    _patchFiles.clear();
+    return _run('스레드 로드', () async {
+      await _refreshThreadDetail();
+    });
   }
 
   Future<void> refreshStatus() {
@@ -153,7 +215,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> submitPrompt({
     required String prompt,
-    required String template,
+    String template = '',
     required Map<String, bool> context,
   }) {
     if (prompt.trim().isEmpty) {
@@ -163,18 +225,25 @@ class AppController extends ChangeNotifier {
     }
 
     return _run('Prompt 제출', () async {
+      final payload = <String, dynamic>{
+        'prompt': prompt.trim(),
+        'contextOptions': {
+          'includeActiveFile': context['activeFile'] ?? false,
+          'includeSelection': context['selection'] ?? false,
+          'includeLatestError': context['latestError'] ?? false,
+          'includeWorkspaceSummary': context['workspaceSummary'] ?? false,
+        },
+      };
+      if (currentThreadId.isNotEmpty) {
+        payload['threadId'] = currentThreadId;
+      }
+      if (template.trim().isNotEmpty) {
+        payload['template'] = template.trim();
+      }
+
       final envelope = _buildEnvelope(
         type: 'PROMPT_SUBMIT',
-        payload: {
-          'prompt': prompt.trim(),
-          'template': template,
-          'contextOptions': {
-            'includeActiveFile': context['activeFile'] ?? false,
-            'includeSelection': context['selection'] ?? false,
-            'includeLatestError': context['latestError'] ?? false,
-            'includeWorkspaceSummary': context['workspaceSummary'] ?? false,
-          },
-        },
+        payload: payload,
       );
 
       promptDraft = prompt.trim();
@@ -248,7 +317,16 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _refreshStatusRaw() async {
-    final p2p = await _api.p2pStatus(agentBaseUrl);
+    final results = await Future.wait<Object?>([
+      _api.p2pStatus(agentBaseUrl),
+      _api.runtimeState(agentBaseUrl),
+      _api.runtimeMetrics(agentBaseUrl),
+      _api.runtimeAdapter(agentBaseUrl),
+      _api.runProfiles(agentBaseUrl),
+      _api.threads(agentBaseUrl),
+    ]);
+
+    final p2p = Map<String, dynamic>.from(results[0] as Map);
     p2pActive = p2p['active'] == true;
     sessionId = p2p['sessionId']?.toString() ?? '';
     pairingCode = p2p['pairingCode']?.toString() ?? '';
@@ -257,15 +335,63 @@ class AppController extends ChangeNotifier {
       directPairingCode = pairingCode;
     }
 
-    final runtime = await _api.runtimeState(agentBaseUrl);
+    final runtime = Map<String, dynamic>.from(results[1] as Map);
     connectionState = runtime['state']?.toString() ?? connectionState;
     _runtimeHistory
       ..clear()
       ..addAll(_parseHistory(runtime['history']));
 
-    final metrics = await _api.runtimeMetrics(agentBaseUrl);
+    final metrics = Map<String, dynamic>.from(results[2] as Map);
     ackMetrics = _parseAckMetrics(metrics['ack']);
     pendingAckCount = ackMetrics.pendingCount;
+
+    adapterRuntime = _parseAdapterRuntime(
+      Map<String, dynamic>.from(results[3] as Map),
+    );
+
+    final runProfilesResponse = Map<String, dynamic>.from(results[4] as Map);
+    _runProfiles
+      ..clear()
+      ..addAll(_parseRunProfiles(runProfilesResponse['profiles']));
+
+    final threadsResponse = Map<String, dynamic>.from(results[5] as Map);
+    _threads
+      ..clear()
+      ..addAll(_parseThreads(threadsResponse['threads']));
+
+    if (currentThreadId.isNotEmpty &&
+        !_threads.any((thread) => thread.id == currentThreadId)) {
+      currentThreadId = '';
+    }
+    if (currentThreadId.isEmpty && _threads.isNotEmpty) {
+      currentThreadId = _threads.first.id;
+    }
+
+    await _refreshThreadDetail();
+  }
+
+  Future<void> _refreshThreadDetail() async {
+    if (currentThreadId.isEmpty) {
+      currentJobId = null;
+      _threadEvents.clear();
+      return;
+    }
+
+    final detail = await _api.threadDetail(agentBaseUrl, currentThreadId);
+    currentThreadId = detail['thread'] is Map
+        ? (detail['thread']['id']?.toString() ?? currentThreadId)
+        : currentThreadId;
+    _threadEvents
+      ..clear()
+      ..addAll(_parseThreadEvents(detail['events']));
+
+    final threadRaw = detail['thread'];
+    if (threadRaw is Map) {
+      final thread = ThreadSummaryView.fromMap(Map<String, dynamic>.from(threadRaw));
+      currentJobId = thread.currentJobId.isEmpty ? currentJobId : thread.currentJobId;
+    }
+
+    _syncDerivedStateFromThreadEvents();
   }
 
   Future<List<Map<String, dynamic>>> _sendEnvelopeAndAck(
@@ -377,6 +503,7 @@ class AppController extends ChangeNotifier {
       final map = Map<String, dynamic>.from(payload);
 
       if (type == 'PROMPT_ACK') {
+        currentThreadId = map['threadId']?.toString() ?? currentThreadId;
         currentJobId = map['jobId']?.toString();
       }
 
@@ -395,9 +522,52 @@ class AppController extends ChangeNotifier {
       if (type == 'RUN_RESULT') {
         runStatus = map['status']?.toString() ?? '';
         runSummary = map['summary']?.toString() ?? '';
+        runExcerpt = map['excerpt']?.toString() ?? '';
+        runOutput = map['output']?.toString() ?? runExcerpt;
         topErrors
           ..clear()
           ..addAll(_parseTopErrors(map['topErrors']));
+      }
+    }
+  }
+
+  void _syncDerivedStateFromThreadEvents() {
+    final selectedJobId = selectedThreadSummary?.currentJobId ?? '';
+    currentJobId = selectedJobId.isEmpty ? currentJobId : selectedJobId;
+    promptDraft = '';
+    patchSummary = '';
+    patchResultStatus = '';
+    patchResultMessage = '';
+    runStatus = '';
+    runSummary = '';
+    runExcerpt = '';
+    runOutput = '';
+    topErrors.clear();
+
+    for (final event in _threadEvents) {
+      if (event.jobId.isNotEmpty) {
+        currentJobId = event.jobId;
+      }
+      if (event.kind == 'prompt_submitted' && event.body.isNotEmpty) {
+        promptDraft = event.body;
+      }
+      if (event.kind == 'patch_ready' && event.body.isNotEmpty) {
+        patchSummary = event.body;
+      }
+      if (event.kind == 'patch_applied') {
+        patchResultStatus = event.data['status']?.toString() ?? patchResultStatus;
+        patchResultMessage = event.body.isEmpty
+            ? (event.data['message']?.toString() ?? patchResultMessage)
+            : event.body;
+      }
+      if (event.kind == 'run_finished') {
+        runStatus = event.data['status']?.toString() ?? runStatus;
+        runSummary = event.data['summary']?.toString() ?? event.body;
+        runExcerpt = event.data['excerpt']?.toString() ?? runExcerpt;
+        runOutput = event.data['output']?.toString() ?? runOutput;
+        topErrors
+          ..clear()
+          ..addAll(_parseTopErrors(event.data['topErrors']));
       }
     }
   }
@@ -427,6 +597,40 @@ class AppController extends ChangeNotifier {
       pendingP2PCount: _toInt(pendingByTransport['p2p']),
       pendingUnknownCount: _toInt(pendingByTransport['unknown']),
     );
+  }
+
+  AdapterRuntimeView _parseAdapterRuntime(Map<String, dynamic> raw) {
+    return AdapterRuntimeView.fromMap(raw);
+  }
+
+  List<RunProfileView> _parseRunProfiles(dynamic raw) {
+    if (raw is! List) {
+      return const [];
+    }
+    return raw
+        .whereType<Map>()
+        .map((item) => RunProfileView.fromMap(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  List<ThreadSummaryView> _parseThreads(dynamic raw) {
+    if (raw is! List) {
+      return const [];
+    }
+    return raw
+        .whereType<Map>()
+        .map((item) => ThreadSummaryView.fromMap(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  List<ThreadEventView> _parseThreadEvents(dynamic raw) {
+    if (raw is! List) {
+      return const [];
+    }
+    return raw
+        .whereType<Map>()
+        .map((item) => ThreadEventView.fromMap(Map<String, dynamic>.from(item)))
+        .toList();
   }
 
   List<RuntimeTransitionView> _parseHistory(dynamic raw) {
@@ -721,6 +925,172 @@ class RuntimeTransitionView {
       return '-';
     }
 
+    final dt = DateTime.fromMillisecondsSinceEpoch(atMillis);
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    final ss = dt.second.toString().padLeft(2, '0');
+    return '$hh:$mm:$ss';
+  }
+}
+
+class AdapterRuntimeView {
+  const AdapterRuntimeView({
+    this.name = '',
+    this.mode = '',
+    this.ready = false,
+    this.workspaceRoot = '',
+    this.binaryPath = '',
+    this.notes = const [],
+  });
+
+  final String name;
+  final String mode;
+  final bool ready;
+  final String workspaceRoot;
+  final String binaryPath;
+  final List<String> notes;
+
+  factory AdapterRuntimeView.fromMap(Map<String, dynamic> map) {
+    final notesRaw = map['notes'];
+    return AdapterRuntimeView(
+      name: map['name']?.toString() ?? '',
+      mode: map['mode']?.toString() ?? '',
+      ready: map['ready'] == true,
+      workspaceRoot: map['workspaceRoot']?.toString() ?? '',
+      binaryPath: map['binaryPath']?.toString() ?? '',
+      notes: notesRaw is List
+          ? notesRaw.map((item) => item.toString()).toList()
+          : const [],
+    );
+  }
+}
+
+class RunProfileView {
+  const RunProfileView({
+    required this.id,
+    required this.label,
+    required this.command,
+    required this.scope,
+    required this.optional,
+  });
+
+  final String id;
+  final String label;
+  final String command;
+  final String scope;
+  final bool optional;
+
+  factory RunProfileView.fromMap(Map<String, dynamic> map) {
+    return RunProfileView(
+      id: map['id']?.toString() ?? '',
+      label: map['label']?.toString() ?? '',
+      command: map['command']?.toString() ?? '',
+      scope: map['scope']?.toString() ?? '',
+      optional: map['optional'] == true,
+    );
+  }
+
+  String get displayLabel {
+    if (label.isEmpty || label == id) {
+      return id;
+    }
+    return '$label ($id)';
+  }
+}
+
+class ThreadSummaryView {
+  const ThreadSummaryView({
+    required this.id,
+    required this.title,
+    required this.sessionId,
+    required this.state,
+    required this.currentJobId,
+    required this.lastEventKind,
+    required this.lastEventText,
+    required this.updatedAtMillis,
+  });
+
+  final String id;
+  final String title;
+  final String sessionId;
+  final String state;
+  final String currentJobId;
+  final String lastEventKind;
+  final String lastEventText;
+  final int updatedAtMillis;
+
+  factory ThreadSummaryView.fromMap(Map<String, dynamic> map) {
+    return ThreadSummaryView(
+      id: map['id']?.toString() ?? '',
+      title: map['title']?.toString() ?? '',
+      sessionId: map['sessionId']?.toString() ?? '',
+      state: map['state']?.toString() ?? '',
+      currentJobId: map['currentJobId']?.toString() ?? '',
+      lastEventKind: map['lastEventKind']?.toString() ?? '',
+      lastEventText: map['lastEventText']?.toString() ?? '',
+      updatedAtMillis: map['updatedAt'] is num
+          ? (map['updatedAt'] as num).toInt()
+          : int.tryParse(map['updatedAt']?.toString() ?? '') ?? 0,
+    );
+  }
+
+  String get updatedAtLabel {
+    if (updatedAtMillis <= 0) {
+      return '-';
+    }
+    final dt = DateTime.fromMillisecondsSinceEpoch(updatedAtMillis);
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '$hh:$mm';
+  }
+}
+
+class ThreadEventView {
+  const ThreadEventView({
+    required this.id,
+    required this.threadId,
+    required this.jobId,
+    required this.kind,
+    required this.role,
+    required this.title,
+    required this.body,
+    required this.data,
+    required this.atMillis,
+  });
+
+  final String id;
+  final String threadId;
+  final String jobId;
+  final String kind;
+  final String role;
+  final String title;
+  final String body;
+  final Map<String, dynamic> data;
+  final int atMillis;
+
+  factory ThreadEventView.fromMap(Map<String, dynamic> map) {
+    final data = map['data'] is Map
+        ? Map<String, dynamic>.from(map['data'] as Map)
+        : <String, dynamic>{};
+    return ThreadEventView(
+      id: map['id']?.toString() ?? '',
+      threadId: map['threadId']?.toString() ?? '',
+      jobId: map['jobId']?.toString() ?? '',
+      kind: map['kind']?.toString() ?? '',
+      role: map['role']?.toString() ?? '',
+      title: map['title']?.toString() ?? '',
+      body: map['body']?.toString() ?? '',
+      data: data,
+      atMillis: map['at'] is num
+          ? (map['at'] as num).toInt()
+          : int.tryParse(map['at']?.toString() ?? '') ?? 0,
+    );
+  }
+
+  String get atLabel {
+    if (atMillis <= 0) {
+      return '-';
+    }
     final dt = DateTime.fromMillisecondsSinceEpoch(atMillis);
     final hh = dt.hour.toString().padLeft(2, '0');
     final mm = dt.minute.toString().padLeft(2, '0');

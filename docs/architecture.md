@@ -2,18 +2,25 @@
 
 ## 시스템 구성 요소
 
-- 모바일 앱(Flutter): Prompt/Review/Status 화면 제공
-- PC 에이전트(Go): 잡 오케스트레이션, 패치 수명주기, 실행 프로파일, 전송 바인딩, Cursor 브리지 child-process/TCP 연결 관리, cursor-agent CLI worktree adapter 관리
-- Cursor 브리지(TypeScript): Cursor extension host 추상화, extension runtime helper, stdio/TCP RPC 서버, 컨텍스트 조회, 패치 적용, 파일/라인 열기
+- 모바일 앱(Flutter): 대화/검토/상태 화면 제공, 공유 스레드 타임라인 표시
+- PC 에이전트(Go): 잡 오케스트레이션, 공유 스레드 저장소, 패치 수명주기, 실행 프로파일, 전송 바인딩, IDE provider 연결 관리
+- IDE 브리지(TypeScript): IDE extension host 추상화, extension runtime helper, stdio/TCP RPC 서버, 컨텍스트 조회, 패치 적용, 파일/라인 열기
 - VibeDeck Bridge Extension(VS Code/Cursor): localhost TCP bridge package, mock mode와 built-in/external command provider 기반 command mode 제공
 - Signaling 서버(Go): 페어링 및 WebRTC 시그널링 부트스트랩
 - Relay 서버(Go): 폴백 이벤트 라우팅 + 백프레셔 정책
 
+## 설계 원칙
+
+- Cursor는 첫 번째 실사용 provider일 뿐, 제품 경계가 아니다.
+- agent 코어는 특정 IDE 채팅/패널 구현에 의존하지 않고 공유 스레드/패치/실행 모델만 안다.
+- 모바일과 IDE는 동일한 thread/event 모델을 공유하고, 각 클라이언트는 자신의 UI로만 렌더링한다.
+- 온보딩은 extension/패키지 기반 최소 세팅을 목표로 한다. 수동 환경변수 입력은 점진적으로 축소한다.
+
 ## Flutter UI 베이스라인 (`mobile/flutter_app`)
 
-- `PromptScreen`: 프롬프트 입력, 템플릿 선택, context 옵션 토글
-- `ReviewScreen`: 파일/헝크 목록 검토와 전체/선택 적용 액션
-- `StatusScreen`: 연결 상태, pending ACK, ACK observability(RTT/queue depth), 히스토리 표시
+- `PromptScreen`: 공유 스레드 목록, 타임라인, 자연어 프롬프트 입력, context 옵션 토글
+- `ReviewScreen`: 파일/헝크 목록 검토와 전체/선택 적용 액션, 동적 run profile 실행, 전체 출력 표시
+- `StatusScreen`: 연결 상태, workspace adapter/runtime, pending ACK, ACK observability(RTT/queue depth), 히스토리 표시
 - `StatusScreen`에서 direct signaling + WebRTC 상태(ws/peer/datachannel) 제어/로그 확인 가능
 
 ## Flutter API/전송 레이어 (`mobile/flutter_app/lib/state/app_controller.dart`)
@@ -47,6 +54,24 @@
 - `GetRunResult`
 - `OpenLocation`
 
+### ThreadStore
+
+- agent 내부의 공유 대화/작업 기록 저장소
+- 스레드 요약과 이벤트 타임라인을 분리해 관리
+- `prompt_submitted`, `patch_ready`, `patch_applied`, `run_finished` 같은 이벤트를 누적
+- 모바일 앱과 향후 IDE 패널이 같은 API로 스레드를 조회
+
+### IDE Provider 확장 전략
+
+- `WorkspaceAdapter`는 IDE 독립 인터페이스다.
+- Cursor는 현재 `cursor-agent CLI`와 extension bridge 두 provider로 연결된다.
+- 이후 `Codex`, `Claude Code`, `Antigravity` 같은 다른 AI IDE/CLI도 같은 계약을 구현하는 provider 패키지로 확장할 수 있다.
+- 확장 단위:
+  - agent 쪽 adapter 구현
+  - 필요 시 extension/bridge package
+  - provider별 setup/packaging 스크립트
+- 이 구조를 유지하면 모바일 앱은 IDE가 늘어나도 thread/review/run UI를 바꿀 필요가 없다.
+
 TypeScript 브리지 패키지 구성:
 
 - `CursorExtensionBridge`가 Cursor command 결과를 `WorkspaceAdapter` 계약으로 정규화
@@ -64,6 +89,7 @@ TypeScript 브리지 패키지 구성:
 - 기본 엔트리포인트는 `adapters/cursor-bridge/dist/fixtureBridgeMain.js`이며, 환경변수로 실제 extension 런처 명령으로 교체할 수 있습니다.
 - `CURSOR_BRIDGE_TCP_ADDR`가 설정되면 agent는 child process 대신 기존 localhost TCP bridge에 직접 연결합니다.
 - `WORKSPACE_ADAPTER_MODE=cursor_agent_cli`가 설정되면 bridge 대신 `CursorAgentCLIAdapter`를 사용합니다.
+- 장기적으로는 `WORKSPACE_ADAPTER_MODE`를 Cursor 전용 값에 고정하지 않고 provider 식별자(`cursor_agent_cli`, `cursor_bridge`, `codex_cli`, `claude_code_cli`, ...)로 확장합니다.
 - `CursorBridgeAdapter`(`internal/agent/cursor_bridge_adapter.go`)가 `name`, `capabilities`, `getContext`, `submitTask`, `getPatch`, `applyPatch`, `runProfile`, `getRunResult`, `openLocation` RPC를 담당합니다.
 - `CursorAgentCLIAdapter`(`internal/agent/cursor_agent_cli_adapter.go`)는 현재 workspace 상태를 temp worktree에 동기화하고, 네이티브 CLI 또는 WSL distro 내부의 실제 binary를 직접 실행해 diff만 회수합니다. ignored 파일은 기본 제외하고 `CURSOR_AGENT_SYNC_IGNORED_JSON` allowlist와 일치하는 항목만 snapshot에 포함합니다.
 - `GET /v1/agent/runtime/adapter`는 현재 adapter 이름, capability, mode, workspace root, binary 경로 같은 smoke 진단 정보를 노출합니다. `/metrics`는 ACK 상태, control result(success/error/timeout), handler latency를 Prometheus text format으로 노출합니다.
@@ -74,6 +100,10 @@ TypeScript 브리지 패키지 구성:
 - `scripts/package_vibedeck_bridge.ps1`는 adapter/extension build와 optional smoke 뒤에 temp staging 디렉터리에서 `extensions/vibedeck-bridge`를 `.vsix`로 패키징합니다.
 - `npm --prefix extensions/vibedeck-bridge run smoke:provider`는 fake cursor-agent를 사용해 built-in command provider와 command bridge 경로를 결정적으로 검증합니다. ignored allowlist에 포함한 파일이 snapshot에 반영되는지도 함께 확인합니다.
 - `npm --prefix extensions/vibedeck-bridge run smoke:extension`는 fake VS Code host + fake cursor-agent를 사용해 `extension.ts -> controller -> TCP bridge -> JSON-RPC` 활성화 경로를 검증합니다. extension 설정의 `vibedeckBridge.cursorAgent.syncIgnoredPaths`도 이 smoke에서 같이 검증합니다.
+- 현재 auto-setup 방향은 다음과 같습니다.
+  - IDE: extension 설치 후 bridge/runtime을 내부에서 올리고 agent 연결 정보를 자동 전달
+  - 모바일: agent/runtime/workspace/run profile/thread 상태를 앱 시작 시 자동 조회
+  - 배포: VSIX 또는 향후 npm/installer 형태로 최소 세팅화
 
 ## 프로토콜 전략
 

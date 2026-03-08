@@ -61,6 +61,18 @@ func TestCursorAgentCLIHelperProcess(t *testing.T) {
 		if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
 			panic(err)
 		}
+	case "create_new_file":
+		newRelativePath := os.Getenv("VIBEDECK_TEST_NEW_FILE")
+		if strings.TrimSpace(newRelativePath) == "" {
+			panic("missing VIBEDECK_TEST_NEW_FILE")
+		}
+		newPath := filepath.Join(cwd, filepath.FromSlash(newRelativePath))
+		if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
+			panic(err)
+		}
+		if err := os.WriteFile(newPath, []byte("print('hello world')\n"), 0o644); err != nil {
+			panic(err)
+		}
 	default:
 		panic("unknown helper mode: " + mode)
 	}
@@ -306,6 +318,64 @@ func TestCursorAgentCLIAdapterSyncsExplicitIgnoredFiles(t *testing.T) {
 	content := readTestFile(t, filepath.Join(repo, "src", "app.txt"))
 	if !strings.Contains(content, "ignored-secret") {
 		t.Fatalf("ignored file content should be reflected after apply: %s", content)
+	}
+}
+
+func TestCursorAgentCLIAdapterCapturesNewFileDiff(t *testing.T) {
+	repo := newCursorAgentTestRepo(t, map[string]string{
+		"README.md": "workspace\n",
+	})
+
+	adapter := newTestCursorAgentCLIAdapterWithOptions(
+		t,
+		repo,
+		"create_new_file",
+		"README.md",
+		nil,
+		[]string{"VIBEDECK_TEST_NEW_FILE=src/hello.py"},
+	)
+
+	handle, err := adapter.SubmitTask(context.Background(), SubmitTaskInput{
+		Prompt: "create src/hello.py that prints hello world",
+	})
+	if err != nil {
+		t.Fatalf("submit task: %v", err)
+	}
+
+	patch, err := adapter.GetPatch(context.Background(), handle.TaskID)
+	if err != nil {
+		t.Fatalf("get patch: %v", err)
+	}
+	if patch == nil || len(patch.Files) != 1 {
+		t.Fatalf("unexpected patch payload: %+v", patch)
+	}
+	if patch.Files[0].Path != "src/hello.py" {
+		t.Fatalf("expected new file path src/hello.py, got %+v", patch.Files[0])
+	}
+	if patch.Files[0].Status != "added" {
+		t.Fatalf("expected added status, got %+v", patch.Files[0])
+	}
+	if len(patch.Files[0].Hunks) != 1 {
+		t.Fatalf("expected 1 hunk for new file, got %+v", patch.Files[0])
+	}
+	if !strings.Contains(patch.Files[0].Hunks[0].Diff, "print('hello world')") {
+		t.Fatalf("expected new file contents in diff, got %s", patch.Files[0].Hunks[0].Diff)
+	}
+
+	applyResult, err := adapter.ApplyPatch(context.Background(), ApplyPatchInput{
+		TaskID: handle.TaskID,
+		Mode:   "all",
+	})
+	if err != nil {
+		t.Fatalf("apply patch: %v", err)
+	}
+	if applyResult.Status != "success" {
+		t.Fatalf("expected apply success, got %+v", applyResult)
+	}
+
+	content := readTestFile(t, filepath.Join(repo, "src", "hello.py"))
+	if strings.TrimSpace(content) != "print('hello world')" {
+		t.Fatalf("expected created file contents, got %q", content)
 	}
 }
 

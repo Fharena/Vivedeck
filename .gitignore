@@ -31,3 +31,4 @@ mobile/flutter_app/build/
 mobile/flutter_app/.flutter-plugins
 mobile/flutter_app/.flutter-plugins-dependencies
 mobile/flutter_app/.packages
+.tmp/

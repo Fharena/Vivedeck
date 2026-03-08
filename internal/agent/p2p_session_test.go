@@ -34,7 +34,7 @@ func newP2PTestManagerWithAckTracker(signalingBaseURL string, ackTracker *runtim
 	if ackTracker == nil {
 		ackTracker = runtime.NewAckTracker(2 * time.Second)
 	}
-	orchestrator := NewOrchestrator(NewMockAdapter(), DefaultRunProfiles())
+	orchestrator := NewOrchestrator(NewMockAdapter(), DefaultRunProfiles(), nil)
 	manager := NewP2PSessionManager(stateManager, ackTracker, orchestrator, signalingBaseURL)
 	return manager, ackTracker
 }

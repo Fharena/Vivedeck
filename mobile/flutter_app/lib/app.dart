@@ -70,7 +70,7 @@ class _MobileShellState extends State<MobileShell> {
   late final AppController _controller;
   late final bool _ownsController;
 
-  static const _titles = ['Prompt', 'Review', 'Status'];
+  static const _titles = ['대화', '검토', '상태'];
 
   @override
   void initState() {
@@ -172,11 +172,11 @@ class _MobileShellState extends State<MobileShell> {
             selectedIndex: _index,
             destinations: const [
               NavigationDestination(
-                  icon: Icon(Icons.edit_note), label: 'Prompt'),
+                  icon: Icon(Icons.forum_outlined), label: '대화'),
               NavigationDestination(
-                  icon: Icon(Icons.rule_folder), label: 'Review'),
+                  icon: Icon(Icons.rule_folder), label: '검토'),
               NavigationDestination(
-                  icon: Icon(Icons.sync_alt), label: 'Status'),
+                  icon: Icon(Icons.sync_alt), label: '상태'),
             ],
             onDestinationSelected: (value) {
               setState(() {
