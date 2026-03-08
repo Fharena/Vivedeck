@@ -162,15 +162,10 @@ npm --prefix extensions/vibedeck-bridge run build
 
 1. `extensions/vibedeck-bridge`를 Cursor/VS Code extension으로 로드
 2. extension 설정에서 `vibedeckBridge.mode`를 `mock` 또는 `command`로 지정
-3. command mode라면 `VibeDeck: Validate Commands`로 필수 command 준비 상태 확인
-4. `VibeDeck: Copy Smoke Command` 또는 `VibeDeck: Copy Agent Env`로 실행 문자열 복사
-5. mock mode smoke는 아래 스크립트로 바로 검증
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\extension_host_smoke.ps1 -BridgeAddress "127.0.0.1:7797"
-```
-
-6. agent를 수동 실행하려면 아래처럼 bridge 주소를 지정
+3. command mode를 쓸 때는 기본값 `vibedeckBridge.commandProvider=builtin_cursor_agent` 그대로 두면 extension이 기본 `vibedeck.*` 명령을 직접 등록
+4. Windows에서 Cursor CLI가 WSL에만 있으면 `vibedeckBridge.cursorAgent.useWsl=true`, 필요하면 `vibedeckBridge.cursorAgent.wslDistro=Ubuntu` 설정
+5. `VibeDeck: Validate Commands`로 command registry readiness 확인
+6. `VibeDeck: Copy Agent Env`로 bridge 주소를 복사해 agent 실행 터미널에 붙여 넣기
 
 ```powershell
 $env:CURSOR_BRIDGE_TCP_ADDR = "127.0.0.1:7797"
@@ -178,10 +173,24 @@ $env:CURSOR_BRIDGE_TCP_DIAL_TIMEOUT = "3s"
 go run ./cmd/agent
 ```
 
-- `mock` 모드는 실제 extension host 안에서 등록된 mock command를 통해 `Prompt -> Patch -> Apply -> Run` smoke를 검증하는 용도입니다.
-- `scripts/extension_host_smoke.ps1`는 bridge preflight 후 agent를 띄워 mock mode end-to-end를 확인합니다.`n- Windows에서는 종료 직후 `agent.exe` 잠금 때문에 temp root cleanup warning이 남을 수 있습니다.
-- `command` 모드는 필수 command ID가 extension host에 등록되어 있어야 시작됩니다.
-- 저장소에는 실제 Cursor AI task command 매핑이 포함되어 있지 않으므로, 실사용하려면 해당 command를 제공하는 환경 또는 별도 adapter가 필요합니다.
+mock mode smoke는 아래 스크립트로 바로 검증할 수 있습니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\extension_host_smoke.ps1 -BridgeAddress "127.0.0.1:7797"
+```
+
+built-in command provider 자체는 아래 명령으로 결정적 smoke를 돌릴 수 있습니다.
+
+```powershell
+npm --prefix extensions/vibedeck-bridge run smoke:provider
+```
+
+현재 상태:
+
+- `mock` 모드는 실제 extension host 안에서 등록된 mock command를 통해 `Prompt -> Patch -> Apply -> Run` smoke를 검증합니다.
+- `command` 모드의 기본값은 built-in `cursor-agent` provider이며, 별도 외부 command ID 없이도 기본 `vibedeck.*` 매핑으로 시작할 수 있습니다.
+- `commandProvider=external`로 바꾸면 기존처럼 외부 command registry만 사용합니다.
+- Windows에서는 mock smoke 종료 직후 `agent.exe` 잠금 때문에 temp root cleanup warning이 남을 수 있습니다.
 
 ## 문서
 

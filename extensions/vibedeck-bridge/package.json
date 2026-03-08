@@ -64,7 +64,16 @@
             "mock"
           ],
           "default": "command",
-          "description": "command 모드는 설정된 command ID를 호출하고, 시작 전에 command registry를 검증합니다. mock 모드는 저장소 fixture 로직으로 smoke test를 제공합니다."
+          "description": "command 모드는 등록된 command ID를 브리지에 연결하고, mock 모드는 저장소 fixture 로직으로 smoke test를 제공합니다."
+        },
+        "vibedeckBridge.commandProvider": {
+          "type": "string",
+          "enum": [
+            "builtin_cursor_agent",
+            "external"
+          ],
+          "default": "builtin_cursor_agent",
+          "description": "command 모드에서 builtin_cursor_agent는 extension 내부 cursor-agent provider를 등록하고, external은 이미 등록된 외부 command ID만 사용합니다."
         },
         "vibedeckBridge.tcpHost": {
           "type": "string",
@@ -117,13 +126,82 @@
           "type": "string",
           "default": "vibedeck.getLatestTerminalError",
           "description": "latest terminal error를 읽을 optional command ID"
+        },
+        "vibedeckBridge.cursorAgent.workspaceRoot": {
+          "type": "string",
+          "default": "",
+          "description": "builtin cursor-agent provider가 사용할 workspace root입니다. 비워두면 현재 열려 있는 첫 workspace folder를 사용합니다."
+        },
+        "vibedeckBridge.cursorAgent.tempRoot": {
+          "type": "string",
+          "default": "",
+          "description": "builtin cursor-agent provider의 temp worktree parent 경로입니다. 비워두면 시스템 temp를 사용합니다."
+        },
+        "vibedeckBridge.cursorAgent.gitBin": {
+          "type": "string",
+          "default": "git",
+          "description": "builtin cursor-agent provider가 사용할 git 실행 파일입니다."
+        },
+        "vibedeckBridge.cursorAgent.bin": {
+          "type": "string",
+          "default": "cursor-agent",
+          "description": "builtin cursor-agent provider가 사용할 cursor-agent 실행 파일입니다. WSL 모드에서는 Linux 쪽 binary 이름 또는 경로를 넣습니다."
+        },
+        "vibedeckBridge.cursorAgent.extraArgs": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "builtin cursor-agent provider에 추가로 넘길 CLI 인자 목록입니다."
+        },
+        "vibedeckBridge.cursorAgent.extraEnv": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "builtin cursor-agent provider에 전달할 추가 환경변수 목록입니다. 형식은 KEY=VALUE 입니다."
+        },
+        "vibedeckBridge.cursorAgent.trustWorkspace": {
+          "type": "boolean",
+          "default": true,
+          "description": "builtin cursor-agent provider 실행 시 --trust 플래그를 자동 추가합니다."
+        },
+        "vibedeckBridge.cursorAgent.model": {
+          "type": "string",
+          "default": "auto",
+          "description": "builtin cursor-agent provider 실행 시 기본 model 값입니다. 비우면 자동 추가를 끕니다."
+        },
+        "vibedeckBridge.cursorAgent.useWsl": {
+          "type": "boolean",
+          "default": false,
+          "description": "Windows에서 cursor-agent를 WSL bash를 통해 실행합니다."
+        },
+        "vibedeckBridge.cursorAgent.wslDistro": {
+          "type": "string",
+          "default": "",
+          "description": "useWsl=true일 때 사용할 WSL distro 이름입니다. 비워두면 기본 distro를 사용합니다."
+        },
+        "vibedeckBridge.cursorAgent.promptTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "minimum": 1000,
+          "description": "builtin cursor-agent provider의 prompt 실행 timeout(ms)입니다."
+        },
+        "vibedeckBridge.cursorAgent.runTimeoutMs": {
+          "type": "number",
+          "default": 120000,
+          "minimum": 1000,
+          "description": "builtin cursor-agent provider의 run profile timeout(ms)입니다."
         }
       }
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit"
+    "check": "tsc -p tsconfig.json --noEmit",
+    "smoke:provider": "npm run build && node ./scripts/command_provider_smoke.mjs"
   },
   "dependencies": {
     "@vibedeck/cursor-bridge": "file:../../adapters/cursor-bridge"
