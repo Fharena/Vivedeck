@@ -13,6 +13,7 @@ dependencies:
   http: ^1.6.0
   flutter_webrtc: ^0.14.2
   path_provider: ^2.1.5
+  app_links: ^6.4.0
 
 dev_dependencies:
   flutter_test:

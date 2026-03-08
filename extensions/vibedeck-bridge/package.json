@@ -24,7 +24,9 @@
     "onCommand:vibedeckBridge.openThreadPanel",
     "onCommand:vibedeckBridge.startAgent",
     "onCommand:vibedeckBridge.stopAgent",
-    "onCommand:vibedeckBridge.restartAgent"
+    "onCommand:vibedeckBridge.restartAgent",
+    "onCommand:vibedeckBridge.openMobileBootstrap",
+    "onCommand:vibedeckBridge.copyMobileBootstrap"
   ],
   "contributes": {
     "commands": [
@@ -67,6 +69,14 @@
       {
         "command": "vibedeckBridge.openThreadPanel",
         "title": "VibeDeck: Open Shared Threads"
+      },
+      {
+        "command": "vibedeckBridge.openMobileBootstrap",
+        "title": "VibeDeck: Open Mobile Bootstrap"
+      },
+      {
+        "command": "vibedeckBridge.copyMobileBootstrap",
+        "title": "VibeDeck: Copy Mobile Bootstrap Link"
       }
     ],
     "configuration": {
@@ -308,6 +318,16 @@
           "default": 15000,
           "minimum": 1000,
           "description": "Timeout in milliseconds for waiting until the local agent health check is ready."
+        },
+        "vibedeckBridge.mobileBootstrap.hostOverride": {
+          "type": "string",
+          "default": "",
+          "description": "모바일 bootstrap QR/deep link에 넣을 host override입니다. 비워두면 extension이 private IPv4를 자동 선택합니다."
+        },
+        "vibedeckBridge.mobileBootstrap.scheme": {
+          "type": "string",
+          "default": "vibedeck",
+          "description": "모바일 bootstrap deep link scheme입니다."
         }
       }
     }
@@ -319,13 +339,16 @@
     "smoke:extension": "npm run build && node ./scripts/extension_runtime_smoke.mjs",
     "package:vsix": "npm run build && node ./scripts/package_vsix.mjs",
     "smoke:panel": "npm run build && node ./scripts/thread_panel_smoke.mjs",
-    "smoke:bootstrap": "npm run build && node ./scripts/bootstrap_runtime_smoke.mjs"
+    "smoke:bootstrap": "npm run build && node ./scripts/bootstrap_runtime_smoke.mjs",
+    "smoke:mobile-bootstrap": "npm run build && node ./scripts/mobile_bootstrap_smoke.mjs"
   },
   "dependencies": {
-    "@vibedeck/cursor-bridge": "file:../../adapters/cursor-bridge"
+    "@vibedeck/cursor-bridge": "file:../../adapters/cursor-bridge",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
+    "@types/qrcode": "^1.5.6",
     "@types/vscode": "^1.96.0",
     "@vscode/vsce": "^3.7.1",
     "typescript": "^5.9.3"

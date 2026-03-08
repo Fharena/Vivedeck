@@ -16,6 +16,8 @@
   - P2P 시작/종료, runtime 상태/ACK 조회
   - 현재 workspace adapter / 작업 디렉토리 / binary 확인
   - Direct signaling + WebRTC 연결(페어링 claim -> signaling WS -> OFFER/ANSWER/ICE -> DataChannel)
+  - `GET /v1/agent/bootstrap` 기반 자동 감지와 최근 host 복원
+  - `vibedeck://bootstrap` deep link 수신 시 agent/signaling/thread 자동 적용
 
 ## 주요 연동 API
 
@@ -28,6 +30,7 @@
 - `GET /v1/agent/run-profiles`
 - `GET /v1/agent/threads`
 - `GET /v1/agent/threads/{id}`
+- `GET /v1/agent/bootstrap`
 - `POST /v1/agent/envelope`
 - `POST /v1/pairings/{code}/claim`
 - `GET /v1/sessions/{sid}/ws?deviceKey=...&role=mobile`
@@ -78,6 +81,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\flutter_test_safe.ps1
 ```
 
 스크립트는 `%TEMP%\vibedeck_flutter_safe\repo` junction 경로에서 테스트를 실행한 뒤 자동 정리합니다.
+
+## 모바일 bootstrap 링크
+
+Cursor extension에서 `VibeDeck: Open Mobile Bootstrap`을 실행하면 QR/deep link 패널이 열리고, `VibeDeck: Copy Mobile Bootstrap Link`로 `vibedeck://bootstrap` 링크를 바로 복사할 수 있습니다. AndroidManifest에는 이 scheme/host가 등록되어 있어서 앱이 설치된 상태면 링크를 열 때 agent/signaling/thread가 자동 반영됩니다.
 
 ## 기본 연결 값
 

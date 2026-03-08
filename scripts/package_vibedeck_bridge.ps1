@@ -71,6 +71,7 @@ if ($RunSmoke) {
     Invoke-NpmScript -NpmPath $npm.Source -PrefixPath $extensionPath -Arguments @("run", "smoke:extension")
     Invoke-NpmScript -NpmPath $npm.Source -PrefixPath $extensionPath -Arguments @("run", "smoke:panel")
     Invoke-NpmScript -NpmPath $npm.Source -PrefixPath $extensionPath -Arguments @("run", "smoke:bootstrap")
+    Invoke-NpmScript -NpmPath $npm.Source -PrefixPath $extensionPath -Arguments @("run", "smoke:mobile-bootstrap")
 }
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null

@@ -72,6 +72,25 @@ npm run smoke:panel
 - agent HTTP thread 조회/refresh
 - panel에서 `PROMPT_SUBMIT`, `PATCH_APPLY`, `RUN_PROFILE`, `OPEN_LOCATION` 제어
 
+## 모바일 bootstrap
+
+- `VibeDeck: Open Mobile Bootstrap`: 모바일용 QR/deep link 패널을 엽니다.
+- `VibeDeck: Copy Mobile Bootstrap Link`: `vibedeck://bootstrap?agent=...&signaling=...&thread=...` 링크를 클립보드에 복사합니다.
+- `vibedeckBridge.mobileBootstrap.hostOverride`: QR/deep link에 넣을 host를 강제로 지정합니다. 비우면 private IPv4를 자동 선택합니다.
+- `vibedeckBridge.mobileBootstrap.scheme`: 기본값 `vibedeck`
+
+모바일 bootstrap smoke:
+
+```powershell
+npm run smoke:mobile-bootstrap
+```
+
+이 smoke는 다음을 검증합니다.
+
+- agent bootstrap API를 읽어 current thread/workspace/provider를 노출하는지
+- localhost agent/signaling 주소를 LAN 주소로 재작성하는지
+- QR SVG와 deep link가 같이 생성되는지
+
 ## local agent 자동 부트스트랩
 
 기본값은 `vibedeckBridge.agent.autoStart=true`, `vibedeckBridge.agent.launchMode=auto` 입니다.
@@ -101,6 +120,8 @@ npm run smoke:panel
 - `VibeDeck: Stop Local Agent`
 - `VibeDeck: Restart Local Agent`
 - `VibeDeck: Show Bridge Status`
+- `VibeDeck: Open Mobile Bootstrap`
+- `VibeDeck: Copy Mobile Bootstrap Link`
 
 자동 부트스트랩 smoke:
 
