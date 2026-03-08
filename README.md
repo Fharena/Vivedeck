@@ -98,15 +98,6 @@ doctor는 `git/go/node/npm/flutter/editor CLI/cursor-agent/build 산출물/vsce`
 실사용 설치 절차는 별도 문서로 정리했습니다.
 
 - 온보딩 가이드: [docs/onboarding.md](./docs/onboarding.md)
-- Codex 병렬 개발 운영: [docs/codex-parallel-dev.md](./docs/codex-parallel-dev.md)
-
-### Codex 병렬 개발 세션
-
-VibeDeck 자체를 더 빨리 개발하려면 worker worktree를 자동 생성해서 Codex 세션을 나눠 쓰는 방식이 가장 안전합니다.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\setup_codex_workers.ps1
-```
 
 ### 빠른 실행
 
@@ -312,4 +303,3 @@ cursor --install-extension .\artifacts\vsix\vibedeck-bridge-0.1.0.vsix --force
 - 크리티컬 이슈 로그: [docs/critical-issues.md](./docs/critical-issues.md)
 - 해결 학습 가이드: [docs/troubleshooting-study.md](./docs/troubleshooting-study.md)
 - 온보딩 가이드: [docs/onboarding.md](./docs/onboarding.md)
-- Codex 병렬 개발 운영: [docs/codex-parallel-dev.md](./docs/codex-parallel-dev.md)
