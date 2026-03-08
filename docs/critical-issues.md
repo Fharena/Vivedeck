@@ -254,6 +254,18 @@
   - cleanup 전 child process tree와 handle 해제 시점을 더 정확히 추적
 - 학습 포인트:
   - Windows smoke 스크립트는 기능 경로 검증과 별개로 프로세스/파일 잠금 해제 타이밍까지 고려해야 안정적으로 종료된다
+### 2026-03-08 / EXTENSION-001 / 기본 command 설정이 undefined로 default 매핑을 덮어씀
+
+- 증상: built-in command provider activation smoke에서 `required commands ready: 0/0`가 나오고, 기본 `vibedeck.*` command가 등록되지 않음
+- 영향: command mode를 기본 설정으로 켜도 built-in provider와 external provider 모두 필수 command 매핑이 비어 실제 시작 경로가 깨질 수 있음
+- 즉시 대응:
+  - extension의 command 설정 로더가 `undefined` 값을 객체에 넣지 않도록 수정
+  - activation-path smoke(`npm --prefix extensions/vibedeck-bridge run smoke:extension`) 추가로 실제 활성화 경로에서 재발 여부 확인
+- 영구 대응:
+  - 부분 설정 객체를 default 객체에 merge할 때 `undefined` override를 금지하는 공통 helper 패턴 유지
+  - command readiness 검증을 unit/smoke 수준 모두에서 유지
+- 학습 포인트:
+  - TypeScript에서 partial config를 spread merge할 때 `undefined`도 실제 override이므로, 기본값 보존이 필요한 설정은 "키 생략"과 "undefined 값"을 엄격히 구분해야 한다
 ## 해결 방식 학습 체크리스트
 
 1. 문제 재현 명령을 문서화했는가?
