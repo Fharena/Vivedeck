@@ -1,27 +1,23 @@
-﻿import 'package:flutter_test/flutter_test.dart';
-import 'package:vibedeck_mobile/app.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:vibedeck_mobile/services/agent_api.dart';
 import 'package:vibedeck_mobile/state/app_controller.dart';
 
 void main() {
-  testWidgets('shows ack observability metrics on status screen',
-      (tester) async {
+  test('loads ack observability metrics and adapter runtime', () async {
     final controller = AppController(api: FakeMetricsAgentApi());
 
     addTearDown(controller.dispose);
 
-    await tester.pumpWidget(VibeDeckApp(controller: controller));
-    await tester.pumpAndSettle();
+    await controller.refreshStatus();
 
-    await tester.tap(find.text('Status').last);
-    await tester.pumpAndSettle();
-
-    expect(find.text('ACK Observability'), findsOneWidget);
-    expect(find.text('24ms'), findsOneWidget);
-    expect(find.text('33ms'), findsOneWidget);
-    expect(find.text('47ms'), findsOneWidget);
-    expect(find.textContaining('transport split: http=1'), findsOneWidget);
-    expect(find.textContaining('/ p2p=2 / unknown=0'), findsOneWidget);
+    expect(controller.ackMetrics.avgAckRttMs, 24);
+    expect(controller.ackMetrics.lastAckRttMs, 33);
+    expect(controller.ackMetrics.maxAckRttMs, 47);
+    expect(controller.ackMetrics.pendingSplitLabel, 'http=1 / p2p=2 / unknown=0');
+    expect(controller.adapterRuntime.workspaceRoot, 'C:/demo/workspace');
+    expect(controller.adapterRuntime.name, 'cursor-agent-cli');
+    expect(controller.currentThreadId, 'thread-metrics-1');
+    expect(controller.currentThreadTitle, 'metrics thread');
   });
 }
 
@@ -80,6 +76,82 @@ class FakeMetricsAgentApi extends AgentApi {
         'avgAckRttMs': 24,
         'maxAckRttMs': 47,
       },
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> runtimeAdapter(String baseUrl) async {
+    return {
+      'name': 'cursor-agent-cli',
+      'mode': 'cursor_agent_cli',
+      'ready': true,
+      'workspaceRoot': 'C:/demo/workspace',
+      'binaryPath': '/home/demo/.local/bin/cursor-agent',
+      'notes': const ['demo metrics adapter'],
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> runProfiles(String baseUrl) async {
+    return {
+      'profiles': const [
+        {
+          'id': 'test_all',
+          'label': 'Demo Check',
+          'command': 'git status --short',
+          'scope': 'SMALL',
+          'optional': false,
+        },
+      ],
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> threads(String baseUrl) async {
+    return {
+      'threads': [
+        {
+          'id': 'thread-metrics-1',
+          'title': 'metrics thread',
+          'sessionId': 'sid-metrics-1',
+          'state': 'patch_ready',
+          'currentJobId': 'job-metrics-1',
+          'lastEventKind': 'patch_ready',
+          'lastEventText': 'patch ready',
+          'updatedAt': DateTime(2026, 3, 7, 10, 5, 1).millisecondsSinceEpoch,
+        },
+      ],
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> threadDetail(String baseUrl, String threadId) async {
+    return {
+      'thread': {
+        'id': threadId,
+        'title': 'metrics thread',
+        'sessionId': 'sid-metrics-1',
+        'state': 'patch_ready',
+        'currentJobId': 'job-metrics-1',
+        'lastEventKind': 'patch_ready',
+        'lastEventText': 'patch ready',
+        'updatedAt': DateTime(2026, 3, 7, 10, 5, 1).millisecondsSinceEpoch,
+      },
+      'events': [
+        {
+          'id': 'evt-metrics-1',
+          'threadId': threadId,
+          'jobId': 'job-metrics-1',
+          'kind': 'patch_ready',
+          'role': 'assistant',
+          'title': '패치 준비 완료',
+          'body': 'metrics ready',
+          'data': {
+            'summary': 'metrics ready',
+          },
+          'at': DateTime(2026, 3, 7, 10, 5, 1).millisecondsSinceEpoch,
+        },
+      ],
     };
   }
 

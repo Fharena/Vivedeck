@@ -33,7 +33,8 @@ func main() {
 		}()
 	}
 
-	orchestrator := agent.NewOrchestrator(adapter, profiles)
+	threadStore := agent.NewThreadStore()
+	orchestrator := agent.NewOrchestrator(adapter, profiles, threadStore)
 
 	stateManager := runtime.NewStateManager(runtime.DefaultManagerConfig())
 	ackTracker := runtime.NewAckTracker(2 * time.Second)

@@ -1,10 +1,11 @@
-﻿.dart_tool/
+.dart_tool/
 .packages
 build/
 coverage/
-android/
 ios/
 linux/
 macos/
 web/
 windows/
+*.iml
+flutter_*.log

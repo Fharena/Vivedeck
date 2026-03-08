@@ -16,7 +16,7 @@ import (
 
 func newTestHTTPServer() (*HTTPServer, *runtime.AckTracker, *ControlMetrics) {
 	adapter := NewMockAdapter()
-	orch := NewOrchestrator(adapter, DefaultRunProfiles())
+	orch := NewOrchestrator(adapter, DefaultRunProfiles(), nil)
 	stateManager := runtime.NewStateManager(runtime.DefaultManagerConfig())
 	ackTracker := runtime.NewAckTracker(2 * time.Second)
 	controlMetrics := NewControlMetrics()
@@ -138,6 +138,89 @@ func TestHTTPServerRuntimeAdapter(t *testing.T) {
 	}
 	if !body.Capabilities.SupportsStructuredPatch {
 		t.Fatalf("expected structured patch capability")
+	}
+}
+
+func TestHTTPServerRunProfilesAndThreadsEndpoints(t *testing.T) {
+	server, _, _ := newTestHTTPServer()
+
+	profileReq := httptest.NewRequest(http.MethodGet, "/v1/agent/run-profiles", nil)
+	profileRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(profileRec, profileReq)
+
+	if profileRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", profileRec.Code)
+	}
+
+	var profileBody struct {
+		Profiles []RunProfileDescriptor `json:"profiles"`
+	}
+	if err := json.Unmarshal(profileRec.Body.Bytes(), &profileBody); err != nil {
+		t.Fatalf("decode run profiles: %v", err)
+	}
+	if len(profileBody.Profiles) == 0 {
+		t.Fatalf("expected non-empty run profile list")
+	}
+
+	submitReq := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/agent/envelope",
+		bytes.NewBufferString(`{"sid":"sid-threads","rid":"rid-submit","seq":1,"ts":1700000000000,"type":"PROMPT_SUBMIT","payload":{"prompt":"Create hello world file","contextOptions":{}}}`),
+	)
+	submitRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(submitRec, submitReq)
+	if submitRec.Code != http.StatusOK {
+		t.Fatalf("submit response should be 200")
+	}
+
+	var submitBody struct {
+		Responses []protocol.Envelope `json:"responses"`
+	}
+	if err := json.Unmarshal(submitRec.Body.Bytes(), &submitBody); err != nil {
+		t.Fatalf("decode submit response: %v", err)
+	}
+
+	var promptAck protocol.PromptAckPayload
+	if err := submitBody.Responses[1].DecodePayload(&promptAck); err != nil {
+		t.Fatalf("decode prompt ack: %v", err)
+	}
+
+	threadsReq := httptest.NewRequest(http.MethodGet, "/v1/agent/threads", nil)
+	threadsRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(threadsRec, threadsReq)
+	if threadsRec.Code != http.StatusOK {
+		t.Fatalf("threads response should be 200")
+	}
+
+	var threadsBody struct {
+		Threads []ThreadSummary `json:"threads"`
+	}
+	if err := json.Unmarshal(threadsRec.Body.Bytes(), &threadsBody); err != nil {
+		t.Fatalf("decode threads: %v", err)
+	}
+	if len(threadsBody.Threads) != 1 {
+		t.Fatalf("expected 1 thread, got %+v", threadsBody.Threads)
+	}
+	if threadsBody.Threads[0].ID != promptAck.ThreadID {
+		t.Fatalf("expected thread id %s, got %+v", promptAck.ThreadID, threadsBody.Threads[0])
+	}
+
+	detailReq := httptest.NewRequest(http.MethodGet, "/v1/agent/threads/"+promptAck.ThreadID, nil)
+	detailRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(detailRec, detailReq)
+	if detailRec.Code != http.StatusOK {
+		t.Fatalf("thread detail response should be 200")
+	}
+
+	var detail ThreadDetail
+	if err := json.Unmarshal(detailRec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode thread detail: %v", err)
+	}
+	if len(detail.Events) != 3 {
+		t.Fatalf("expected 3 events, got %+v", detail.Events)
+	}
+	if detail.Thread.CurrentJobID == "" {
+		t.Fatalf("expected current job id to be set")
 	}
 }
 

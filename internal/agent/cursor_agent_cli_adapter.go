@@ -386,6 +386,9 @@ func (a *CursorAgentCLIAdapter) generateTask(ctx context.Context, taskID string,
 	if err != nil {
 		return nil, err
 	}
+	if err := a.stageUntrackedFilesForDiff(ctx, worktreeDir); err != nil {
+		return nil, err
+	}
 
 	rawDiff, err := a.runGit(ctx, worktreeDir, "diff", "--binary", "HEAD", "--", ".")
 	if err != nil {
@@ -462,6 +465,32 @@ func (a *CursorAgentCLIAdapter) syncWorkspaceIntoWorktree(ctx context.Context, w
 		if err := copyFile(sourcePath, targetPath); err != nil {
 			return fmt.Errorf("copy workspace snapshot file %s: %w", path, err)
 		}
+	}
+	return nil
+}
+
+func (a *CursorAgentCLIAdapter) stageUntrackedFilesForDiff(ctx context.Context, worktreeDir string) error {
+	output, err := a.runGit(ctx, worktreeDir, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return err
+	}
+
+	paths := make([]string, 0)
+	for _, line := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
+		path := strings.TrimSpace(line)
+		if path == "" {
+			continue
+		}
+		paths = append(paths, path)
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+
+	args := []string{"add", "-N", "--"}
+	args = append(args, paths...)
+	if _, err := a.runGit(ctx, worktreeDir, args...); err != nil {
+		return fmt.Errorf("stage untracked files for diff: %w", err)
 	}
 	return nil
 }
@@ -560,6 +589,7 @@ func (a *CursorAgentCLIAdapter) executeRunProfile(ctx context.Context, runID str
 			Summary:   "dynamic run profile is not configured for cursor_agent_cli",
 			TopErrors: []protocol.ParsedError{{Message: "dynamic run profile is not configured"}},
 			Excerpt:   "dynamic run profile is not configured",
+			Output:    "dynamic run profile is not configured",
 		}
 	}
 
@@ -585,6 +615,7 @@ func (a *CursorAgentCLIAdapter) executeRunProfile(ctx context.Context, runID str
 		Status:    status,
 		Summary:   summary,
 		Excerpt:   lastLines(combined, 20),
+		Output:    combined,
 	}
 	if status != "passed" {
 		message := firstNonEmptyLine(combined)

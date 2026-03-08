@@ -146,12 +146,19 @@
 - 온보딩 점검 스크립트(`scripts/vibedeck_doctor.ps1`)
 - VSIX 패키징 스크립트(`scripts/package_vibedeck_bridge.ps1`)
 - 로컬 설치/실사용 온보딩 문서(`docs/onboarding.md`)
+- agent 공유 스레드 저장소(`ThreadStore`)와 thread 조회 API(`GET /v1/agent/threads`, `GET /v1/agent/threads/{id}`)
+- 모바일 대화형 스레드 화면(스레드 목록, 타임라인, 자연어 프롬프트 작성)
+- 모바일 검토 화면의 동적 run profile 목록과 전체 실행 출력 표시
+- 모바일 상태 화면의 workspace adapter/runtime 정보 표시
 
 ## 다음 작업 우선순위
 
-1. Windows smoke cleanup/agent 잠금 이슈 정리
-2. control timeout budget 운영 설정 외부화
-3. 설치 산출물 버전 관리/릴리스 자동화
+1. IDE shared thread panel 추가로 모바일/IDE 같은 대화 흐름 완성
+2. bridge/agent 자동 부트스트랩으로 IDE 세팅 최소화
+3. Cursor 외 provider(Codex/Claude Code/Antigravity) 확장용 adapter mode 정리
+4. Windows smoke cleanup/agent 잠금 이슈 정리
+5. control timeout budget 운영 설정 외부화
+6. 설치 산출물 버전 관리/릴리스 자동화
 
 ## 커밋 전략
 

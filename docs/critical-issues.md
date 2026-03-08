@@ -294,6 +294,19 @@
   - 릴리스 자동화 시 VSIX 내부 tree 검증을 체크에 포함
 - 학습 포인트:
   - 개발용 file dependency는 런타임 확인에는 편하지만, 배포 산출물에서는 저장소 바깥 상대경로를 끌어들일 수 있으므로 packaging 경계를 따로 설계해야 함
+### 2026-03-08 / TOOLCHAIN-009 / Android Gradle local.properties 가 한글 경로를 깨뜨림
+
+- 증상: `flutter build apk` 또는 `flutter run`이 `Included build ''...tools\flutter\packages\flutter_tools\gradle'' does not exist.` 로 실패하고, 경로의 `바탕 화면` 부분이 mojibake로 깨짐
+- 영향: Android 실기기 연결이 정상이어도 Windows 한글/공백 경로에서 모바일 앱 실행이 막힘
+- 즉시 대응:
+  - `mobile/flutter_app/scripts/flutter_safe.ps1` 추가
+  - `subst V:` 임시 매핑 후 `V:\tools\flutter\bin\flutter.bat` 기준으로 실행
+  - 실행 전에 `android/local.properties`를 삭제해 Flutter가 ASCII 경로 기준으로 다시 생성하게 함
+- 영구 대응:
+  - Flutter/Android 작업 경로를 공백 없는 ASCII 경로로 표준화
+  - 모바일 온보딩 문서와 실행 스크립트에 safe 경로 우회 방법을 기본 경로로 포함
+- 학습 포인트:
+  - Java properties 기반 도구는 Windows 로케일 경로를 그대로 안전하게 처리하지 못할 수 있으므로, 실제 Android/Gradle 경로는 ASCII 기준 우회 경로를 미리 제공하는 편이 안정적임
 ## 해결 방식 학습 체크리스트
 
 1. 문제 재현 명령을 문서화했는가?

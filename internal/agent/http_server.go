@@ -13,6 +13,7 @@ import (
 
 type HTTPServer struct {
 	adapter        WorkspaceAdapter
+	orchestrator   *Orchestrator
 	stateManager   *runtime.StateManager
 	ackTracker     *runtime.AckTracker
 	controlMetrics *ControlMetrics
@@ -23,6 +24,7 @@ type HTTPServer struct {
 func NewHTTPServer(adapter WorkspaceAdapter, orchestrator *Orchestrator, stateManager *runtime.StateManager, ackTracker *runtime.AckTracker, controlMetrics *ControlMetrics, p2pManager *P2PSessionManager) *HTTPServer {
 	return &HTTPServer{
 		adapter:        adapter,
+		orchestrator:   orchestrator,
 		stateManager:   stateManager,
 		ackTracker:     ackTracker,
 		controlMetrics: controlMetrics,
@@ -41,6 +43,9 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("/v1/agent/runtime/adapter", s.handleRuntimeAdapter)
 	mux.HandleFunc("/v1/agent/runtime/acks/expired", s.handleExpiredAcks)
 	mux.HandleFunc("/v1/agent/runtime/acks/pending", s.handlePendingAcks)
+	mux.HandleFunc("/v1/agent/run-profiles", s.handleRunProfiles)
+	mux.HandleFunc("/v1/agent/threads", s.handleThreads)
+	mux.HandleFunc("/v1/agent/threads/", s.handleThreadDetail)
 	mux.HandleFunc("/v1/agent/p2p/start", s.handleP2PStart)
 	mux.HandleFunc("/v1/agent/p2p/status", s.handleP2PStatus)
 	mux.HandleFunc("/v1/agent/p2p/stop", s.handleP2PStop)
@@ -246,6 +251,56 @@ func (s *HTTPServer) handleRuntimeAdapter(w http.ResponseWriter, r *http.Request
 		info = provider.RuntimeInfo()
 	}
 	writeJSON(w, http.StatusOK, info)
+}
+
+func (s *HTTPServer) handleRunProfiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	profiles := []RunProfileDescriptor{}
+	if s.orchestrator != nil {
+		profiles = s.orchestrator.RunProfiles()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"profiles": profiles})
+}
+
+func (s *HTTPServer) handleThreads(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	threads := []ThreadSummary{}
+	if s.orchestrator != nil && s.orchestrator.ThreadStore() != nil {
+		threads = s.orchestrator.ThreadStore().List()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"threads": threads})
+}
+
+func (s *HTTPServer) handleThreadDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	threadID := strings.TrimPrefix(r.URL.Path, "/v1/agent/threads/")
+	threadID = strings.TrimSpace(strings.Trim(threadID, "/"))
+	if threadID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "thread id is required"})
+		return
+	}
+	if s.orchestrator == nil || s.orchestrator.ThreadStore() == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "thread not found"})
+		return
+	}
+
+	detail, ok := s.orchestrator.ThreadStore().Get(threadID)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "thread not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
 }
 
 func (s *HTTPServer) handleExpiredAcks(w http.ResponseWriter, r *http.Request) {

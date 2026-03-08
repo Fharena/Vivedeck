@@ -1,18 +1,16 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vibedeck_mobile/app.dart';
 import 'package:vibedeck_mobile/services/agent_api.dart';
 import 'package:vibedeck_mobile/services/mobile_direct_signaling_session.dart';
 import 'package:vibedeck_mobile/services/signaling_api.dart';
 import 'package:vibedeck_mobile/state/app_controller.dart';
 
 void main() {
-  testWidgets('drives prompt patch run loop over direct control path', (
-    tester,
-  ) async {
-    final agentApi = FakeAgentApi();
-    final directSession = FakeDirectSession();
+  test('drives prompt patch run loop over direct control path', () async {
+    final threadStore = FakeThreadStore();
+    final agentApi = FakeAgentApi(threadStore);
+    final directSession = FakeDirectSession(threadStore: threadStore);
     final controller = AppController(
       api: agentApi,
       directSessionFactory: () => directSession,
@@ -20,19 +18,14 @@ void main() {
 
     addTearDown(controller.dispose);
 
-    await tester.pumpWidget(VibeDeckApp(controller: controller));
-    await tester.pumpAndSettle();
-
     controller.updateDirectPairingCode('PAIR123');
     await controller.connectDirectSignaling();
-    await tester.pumpAndSettle();
 
     expect(controller.directControlReady, isTrue);
     expect(controller.controlPath, 'DIRECT');
 
     await controller.submitPrompt(
       prompt: 'auth middleware 버그 수정',
-      template: 'fix_bug',
       context: const {
         'activeFile': true,
         'selection': true,
@@ -40,30 +33,28 @@ void main() {
         'workspaceSummary': false,
       },
     );
-    await tester.pumpAndSettle();
 
+    expect(controller.currentThreadId, 'thread-direct-1');
     expect(controller.currentJobId, 'job-direct-1');
     expect(controller.patchSummary, 'Mock patch for direct flow');
     expect(controller.patchFiles, hasLength(1));
 
-    await tester.tap(find.text('Review').last);
-    await tester.pumpAndSettle();
+    expect(controller.patchFiles.single.path, 'src/auth/middleware.ts');
 
-    expect(find.text('src/auth/middleware.ts'), findsOneWidget);
-
-    await tester.tap(find.text('전체 적용'));
-    await tester.pumpAndSettle();
+    await controller.applyPatch(
+      applyAll: true,
+      selectedByPath: const <String, Set<String>>{},
+    );
 
     expect(controller.patchResultStatus, 'success');
-    expect(find.textContaining('PATCH_RESULT: success'), findsWidgets);
+    expect(controller.patchResultMessage, 'patch applied');
 
-    await tester.tap(find.text('test_all 실행'));
-    await tester.pumpAndSettle();
+    await controller.runProfile('test_all');
 
     expect(controller.runStatus, 'failed');
-    expect(find.textContaining('RUN_RESULT: failed'), findsWidgets);
-    expect(find.textContaining('1 failing test in auth middleware'),
-        findsOneWidget);
+    expect(controller.runSummary, '1 failing test in auth middleware');
+    expect(controller.runOutput, contains('AssertionError: expected 401 got 500'));
+    expect(controller.topErrors.single, contains('tests/auth/middleware.test.ts:44'));
 
     expect(agentApi.httpEnvelopeTypes, isEmpty);
     expect(
@@ -82,8 +73,12 @@ void main() {
   });
 
   test('falls back to HTTP when direct control request fails', () async {
-    final agentApi = FakeAgentApi();
-    final directSession = FakeDirectSession(failRequests: true);
+    final threadStore = FakeThreadStore();
+    final agentApi = FakeAgentApi(threadStore);
+    final directSession = FakeDirectSession(
+      threadStore: threadStore,
+      failRequests: true,
+    );
     final controller = AppController(
       api: agentApi,
       directSessionFactory: () => directSession,
@@ -95,7 +90,6 @@ void main() {
     await controller.connectDirectSignaling();
     await controller.submitPrompt(
       prompt: 'auth middleware 버그 수정',
-      template: 'fix_bug',
       context: const {
         'activeFile': true,
         'selection': true,
@@ -104,6 +98,7 @@ void main() {
       },
     );
 
+    expect(controller.currentThreadId, 'thread-http-1');
     expect(controller.currentJobId, 'job-http-1');
     expect(controller.patchSummary, 'Mock patch through HTTP fallback');
     expect(agentApi.httpEnvelopeTypes, ['PROMPT_SUBMIT', 'CMD_ACK', 'CMD_ACK']);
@@ -118,8 +113,9 @@ void main() {
 }
 
 class FakeAgentApi extends AgentApi {
-  FakeAgentApi();
+  FakeAgentApi(this.threadStore);
 
+  final FakeThreadStore threadStore;
   final List<Map<String, dynamic>> sentEnvelopes = [];
 
   List<String> get httpEnvelopeTypes => sentEnvelopes
@@ -201,6 +197,43 @@ class FakeAgentApi extends AgentApi {
   }
 
   @override
+  Future<Map<String, dynamic>> runtimeAdapter(String baseUrl) async {
+    return {
+      'name': 'cursor-agent-cli',
+      'mode': 'cursor_agent_cli',
+      'ready': true,
+      'workspaceRoot': 'C:/vibedeck-demo/workspace',
+      'binaryPath': '/home/fharena/.local/bin/cursor-agent',
+      'notes': const ['fake test adapter'],
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> runProfiles(String baseUrl) async {
+    return {
+      'profiles': const [
+        {
+          'id': 'test_all',
+          'label': 'Demo Check',
+          'command': 'git status --short',
+          'scope': 'SMALL',
+          'optional': false,
+        },
+      ],
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> threads(String baseUrl) async {
+    return {'threads': threadStore.listThreads()};
+  }
+
+  @override
+  Future<Map<String, dynamic>> threadDetail(String baseUrl, String threadId) async {
+    return threadStore.threadDetail(threadId);
+  }
+
+  @override
   Future<Map<String, dynamic>> sendEnvelope(
     String baseUrl,
     Map<String, dynamic> envelope,
@@ -211,6 +244,13 @@ class FakeAgentApi extends AgentApi {
     if (type == 'PROMPT_SUBMIT') {
       final sid = envelope['sid']?.toString() ?? 'sid-http-1';
       final requestRid = envelope['rid']?.toString() ?? 'rid-http-submit';
+      threadStore.recordPrompt(
+        threadId: 'thread-http-1',
+        sessionId: sid,
+        jobId: 'job-http-1',
+        prompt: 'auth middleware 버그 수정',
+        summary: 'Mock patch through HTTP fallback',
+      );
       return {
         'responses': [
           cmdAckEnvelope(sid: sid, requestRid: requestRid, seq: 10),
@@ -218,6 +258,7 @@ class FakeAgentApi extends AgentApi {
             sid: sid,
             rid: 'rid-prompt-ack-http-1',
             seq: 11,
+            threadId: 'thread-http-1',
             jobId: 'job-http-1',
           ),
           patchReadyEnvelope(
@@ -229,6 +270,27 @@ class FakeAgentApi extends AgentApi {
           ),
         ],
       };
+    }
+
+    if (type == 'PATCH_APPLY') {
+      threadStore.recordPatch(
+        threadId: 'thread-http-1',
+        jobId: 'job-http-1',
+        status: 'success',
+        message: 'patch applied',
+      );
+    }
+
+    if (type == 'RUN_PROFILE') {
+      threadStore.recordRun(
+        threadId: 'thread-http-1',
+        jobId: 'job-http-1',
+        profileId: 'test_all',
+        status: 'failed',
+        summary: '1 failing test in auth middleware',
+        excerpt: 'AssertionError: expected 401 got 500',
+        output: 'FAIL tests/auth/middleware.test.ts\nAssertionError: expected 401 got 500',
+      );
     }
 
     return {
@@ -253,8 +315,12 @@ class FakeAgentApi extends AgentApi {
 }
 
 class FakeDirectSession extends MobileDirectSignalingSession {
-  FakeDirectSession({this.failRequests = false});
+  FakeDirectSession({
+    required this.threadStore,
+    this.failRequests = false,
+  });
 
+  final FakeThreadStore threadStore;
   final bool failRequests;
 
   final StreamController<DirectSignalingState> _states =
@@ -333,12 +399,20 @@ class FakeDirectSession extends MobileDirectSignalingSession {
 
     switch (type) {
       case 'PROMPT_SUBMIT':
+        threadStore.recordPrompt(
+          threadId: 'thread-direct-1',
+          sessionId: sid,
+          jobId: 'job-direct-1',
+          prompt: 'auth middleware 버그 수정',
+          summary: 'Mock patch for direct flow',
+        );
         return [
           cmdAckEnvelope(sid: sid, requestRid: requestRid, seq: 20),
           promptAckEnvelope(
             sid: sid,
             rid: 'rid-prompt-ack-direct-1',
             seq: 21,
+            threadId: 'thread-direct-1',
             jobId: 'job-direct-1',
           ),
           patchReadyEnvelope(
@@ -350,6 +424,12 @@ class FakeDirectSession extends MobileDirectSignalingSession {
           ),
         ];
       case 'PATCH_APPLY':
+        threadStore.recordPatch(
+          threadId: 'thread-direct-1',
+          jobId: 'job-direct-1',
+          status: 'success',
+          message: 'patch applied',
+        );
         return [
           cmdAckEnvelope(sid: sid, requestRid: requestRid, seq: 30),
           patchResultEnvelope(
@@ -359,6 +439,15 @@ class FakeDirectSession extends MobileDirectSignalingSession {
           ),
         ];
       case 'RUN_PROFILE':
+        threadStore.recordRun(
+          threadId: 'thread-direct-1',
+          jobId: 'job-direct-1',
+          profileId: 'test_all',
+          status: 'failed',
+          summary: '1 failing test in auth middleware',
+          excerpt: 'AssertionError: expected 401 got 500',
+          output: 'FAIL tests/auth/middleware.test.ts\nAssertionError: expected 401 got 500',
+        );
         return [
           cmdAckEnvelope(sid: sid, requestRid: requestRid, seq: 40),
           runResultEnvelope(
@@ -403,6 +492,192 @@ class FakeDirectSession extends MobileDirectSignalingSession {
   }
 }
 
+class FakeThreadStore {
+  String _threadId = '';
+  String _sessionId = '';
+  String _title = '새 스레드';
+  String _state = 'draft';
+  String _currentJobId = '';
+  String _lastEventKind = '';
+  String _lastEventText = '';
+  int _updatedAt = 0;
+  final List<Map<String, dynamic>> _events = [];
+
+  List<Map<String, dynamic>> listThreads() {
+    if (_threadId.isEmpty) {
+      return const [];
+    }
+    return [threadSummary()];
+  }
+
+  Map<String, dynamic> threadDetail(String threadId) {
+    if (_threadId.isEmpty || threadId != _threadId) {
+      return {
+        'thread': {
+          'id': threadId,
+          'title': threadId,
+          'sessionId': '',
+          'state': 'draft',
+          'currentJobId': '',
+          'lastEventKind': '',
+          'lastEventText': '',
+          'updatedAt': 0,
+        },
+        'events': const [],
+      };
+    }
+    return {
+      'thread': threadSummary(),
+      'events': _events,
+    };
+  }
+
+  void recordPrompt({
+    required String threadId,
+    required String sessionId,
+    required String jobId,
+    required String prompt,
+    required String summary,
+  }) {
+    _threadId = threadId;
+    _sessionId = sessionId;
+    _title = prompt;
+    _currentJobId = jobId;
+    _events
+      ..clear()
+      ..add(_event(
+        kind: 'prompt_submitted',
+        role: 'user',
+        title: '프롬프트 제출',
+        body: prompt,
+        jobId: jobId,
+      ))
+      ..add(_event(
+        kind: 'prompt_accepted',
+        role: 'system',
+        title: '작업 시작',
+        body: 'prompt accepted',
+        jobId: jobId,
+      ))
+      ..add(_event(
+        kind: 'patch_ready',
+        role: 'assistant',
+        title: '패치 준비 완료',
+        body: summary,
+        jobId: jobId,
+        data: {
+          'summary': summary,
+          'fileCount': 1,
+        },
+      ));
+    _state = 'patch_ready';
+    _lastEventKind = 'patch_ready';
+    _lastEventText = summary;
+    _updatedAt = _events.last['at'] as int;
+  }
+
+  void recordPatch({
+    required String threadId,
+    required String jobId,
+    required String status,
+    required String message,
+  }) {
+    if (_threadId != threadId) {
+      return;
+    }
+    _events.add(_event(
+      kind: 'patch_applied',
+      role: 'system',
+      title: '패치 적용 결과',
+      body: message,
+      jobId: jobId,
+      data: {
+        'status': status,
+        'message': message,
+      },
+    ));
+    _state = status;
+    _lastEventKind = 'patch_applied';
+    _lastEventText = message;
+    _updatedAt = _events.last['at'] as int;
+  }
+
+  void recordRun({
+    required String threadId,
+    required String jobId,
+    required String profileId,
+    required String status,
+    required String summary,
+    required String excerpt,
+    required String output,
+  }) {
+    if (_threadId != threadId) {
+      return;
+    }
+    _events.add(_event(
+      kind: 'run_finished',
+      role: 'system',
+      title: '실행 결과',
+      body: summary,
+      jobId: jobId,
+      data: {
+        'status': status,
+        'summary': summary,
+        'excerpt': excerpt,
+        'output': output,
+        'profileId': profileId,
+        'topErrors': [
+          {
+            'message': 'expected 401 got 500',
+            'path': 'tests/auth/middleware.test.ts',
+            'line': 44,
+            'column': 13,
+          },
+        ],
+      },
+    ));
+    _state = status;
+    _lastEventKind = 'run_finished';
+    _lastEventText = summary;
+    _updatedAt = _events.last['at'] as int;
+  }
+
+  Map<String, dynamic> threadSummary() {
+    return {
+      'id': _threadId,
+      'title': _title,
+      'sessionId': _sessionId,
+      'state': _state,
+      'currentJobId': _currentJobId,
+      'lastEventKind': _lastEventKind,
+      'lastEventText': _lastEventText,
+      'updatedAt': _updatedAt,
+    };
+  }
+
+  Map<String, dynamic> _event({
+    required String kind,
+    required String role,
+    required String title,
+    required String body,
+    required String jobId,
+    Map<String, dynamic>? data,
+  }) {
+    final at = DateTime(2026, 3, 7, 10, 0, _events.length).millisecondsSinceEpoch;
+    return {
+      'id': 'evt-${_events.length + 1}',
+      'threadId': _threadId,
+      'jobId': jobId,
+      'kind': kind,
+      'role': role,
+      'title': title,
+      'body': body,
+      'data': data ?? const <String, dynamic>{},
+      'at': at,
+    };
+  }
+}
+
 Map<String, dynamic> cmdAckEnvelope({
   required String sid,
   required String requestRid,
@@ -426,6 +701,7 @@ Map<String, dynamic> promptAckEnvelope({
   required String sid,
   required String rid,
   required int seq,
+  required String threadId,
   required String jobId,
 }) {
   return {
@@ -435,6 +711,7 @@ Map<String, dynamic> promptAckEnvelope({
     'ts': 1700000001000 + seq,
     'type': 'PROMPT_ACK',
     'payload': {
+      'threadId': threadId,
       'jobId': jobId,
       'state': 'patch_ready',
       'message': 'prompt accepted',
@@ -523,6 +800,7 @@ Map<String, dynamic> runResultEnvelope({
         },
       ],
       'excerpt': 'AssertionError: expected 401 got 500',
+      'output': 'FAIL tests/auth/middleware.test.ts\nAssertionError: expected 401 got 500',
     },
   };
 }
