@@ -143,12 +143,15 @@
 - 실제 Cursor GUI extension host + built-in cursor-agent provider smoke proof(`scripts/gui_extension_host_smoke.ps1`)
 - Go `cursor_agent_cli` adapter와 extension built-in provider 공통 ignored 파일 explicit allowlist sync 정책
 - Prometheus scrape endpoint(`/metrics`) + control handler latency/timeout metrics
+- 온보딩 점검 스크립트(`scripts/vibedeck_doctor.ps1`)
+- VSIX 패키징 스크립트(`scripts/package_vibedeck_bridge.ps1`)
+- 로컬 설치/실사용 온보딩 문서(`docs/onboarding.md`)
 
 ## 다음 작업 우선순위
 
-1. 실제 사용 패키징/온보딩 가이드 정리
-2. Windows smoke cleanup/agent 잠금 이슈 정리
-3. control timeout budget 운영 설정 외부화
+1. Windows smoke cleanup/agent 잠금 이슈 정리
+2. control timeout budget 운영 설정 외부화
+3. 설치 산출물 버전 관리/릴리스 자동화
 
 ## 커밋 전략
 

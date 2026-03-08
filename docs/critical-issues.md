@@ -281,6 +281,19 @@
   - command readiness 검증을 unit/smoke 수준 모두에서 유지
 - 학습 포인트:
   - TypeScript에서 partial config를 spread merge할 때 `undefined`도 실제 override이므로, 기본값 보존이 필요한 설정은 "키 생략"과 "undefined 값"을 엄격히 구분해야 한다
+### 2026-03-08 / TOOLCHAIN-008 / file: 의존성 그대로 VSIX에 들어가 invalid relative path 발생
+
+- 증상: `vsce package`가 `invalid relative path: extension/../../adapters/cursor-bridge/node_modules/...` 오류로 실패
+- 영향: 로컬에서는 extension이 동작해도 실제 `.vsix` 산출물을 만들 수 없어 설치/배포 단계가 막힘
+- 즉시 대응:
+  - `extensions/vibedeck-bridge/scripts/package_vsix.mjs` 추가
+  - 패키징 시 temp staging 디렉터리를 만들고, extension dist와 `@vibedeck/cursor-bridge`의 runtime 파일(`dist`, `README.md`, `package.json`)만 vendor copy
+  - extension 쪽은 `node ./scripts/package_vsix.mjs`, 루트 쪽은 `scripts/package_vibedeck_bridge.ps1`에서 Node entry를 직접 호출하도록 정렬
+- 영구 대응:
+  - 로컬 file dependency 기반 extension 패키징은 staging/vendor copy 또는 publishable tarball 경로로 표준화
+  - 릴리스 자동화 시 VSIX 내부 tree 검증을 체크에 포함
+- 학습 포인트:
+  - 개발용 file dependency는 런타임 확인에는 편하지만, 배포 산출물에서는 저장소 바깥 상대경로를 끌어들일 수 있으므로 packaging 경계를 따로 설계해야 함
 ## 해결 방식 학습 체크리스트
 
 1. 문제 재현 명령을 문서화했는가?
