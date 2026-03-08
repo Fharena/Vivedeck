@@ -428,10 +428,13 @@ class DefaultThreadPanelController implements ThreadPanelController {
 
   private readSettings(): ThreadPanelSettings {
     const config = this.vscode.workspace.getConfiguration("vibedeckBridge");
+    const configuredAgentBaseUrl = text(config.get<string>("agentBaseUrl", "")).trim();
+    const agentHost = text(config.get<string>("agent.host", "127.0.0.1")).trim() || "127.0.0.1";
+    const agentPort = normalizePortValue(config.get<number>("agent.port", 8080), 8080);
     return {
       agentBaseUrl:
-        text(config.get<string>("agentBaseUrl", "http://127.0.0.1:8080")).trim() ||
-        "http://127.0.0.1:8080",
+        configuredAgentBaseUrl ||
+        normalizeAgentBaseUrl(agentHost, agentPort),
       autoRefreshMs: normalizeRefreshMs(config.get<number>("panelAutoRefreshMs", 4000)),
     };
   }
@@ -641,6 +644,18 @@ function normalizeRefreshMs(value: number): number {
     return 4000;
   }
   return Math.trunc(value);
+}
+
+function normalizePortValue(value: number, fallback: number): number {
+  if (!Number.isFinite(value) || value < 1 || value > 65535) {
+    return fallback;
+  }
+  return Math.trunc(value);
+}
+
+function normalizeAgentBaseUrl(host: string, port: number): string {
+  const safeHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
+  return `http://${safeHost}:${port}`;
 }
 
 function objectArray(value: unknown): Record<string, unknown>[] {

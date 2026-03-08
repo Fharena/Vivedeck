@@ -17,6 +17,13 @@ import {
   type CursorAgentCommandAdapterConfig,
 } from "./cursorAgentCommandAdapter.js";
 import {
+  createLocalAgentController,
+  readLocalAgentSettings,
+  type LocalAgentController,
+  type LocalAgentSettings,
+  type LocalAgentStatus,
+} from "./localAgentController.js";
+import {
   createThreadPanelController,
   type ThreadPanelController,
   type ThreadPanelWebviewPanelLike,
@@ -123,6 +130,7 @@ interface BridgeSettings {
   tcpPort: number;
   commands: Partial<CursorBridgeCommands>;
   cursorAgent: CursorAgentCommandAdapterConfig;
+  agent: LocalAgentSettings;
 }
 
 interface ActiveBridge {
@@ -154,21 +162,38 @@ export interface BridgeExtensionController {
   deactivate(): Promise<void>;
 }
 
+export interface BridgeExtensionControllerDependencies {
+  localAgent?: LocalAgentController;
+}
+
 export function createBridgeExtensionController(
   vscodeLike: BridgeExtensionVscodeLike,
+  dependencies: BridgeExtensionControllerDependencies = {},
 ): BridgeExtensionController {
-  return new DefaultBridgeExtensionController(vscodeLike);
+  return new DefaultBridgeExtensionController(vscodeLike, dependencies);
 }
 
 class DefaultBridgeExtensionController implements BridgeExtensionController {
   private readonly vscode: BridgeExtensionVscodeLike;
+  private readonly localAgent: LocalAgentController;
   private readonly threadPanel: ThreadPanelController;
   private activeBridge: ActiveBridge | undefined;
   private statusBarItem: BridgeExtensionStatusBarItemLike | undefined;
   private lastBridgeError: string | undefined;
 
-  constructor(vscodeLike: BridgeExtensionVscodeLike) {
+  constructor(
+    vscodeLike: BridgeExtensionVscodeLike,
+    dependencies: BridgeExtensionControllerDependencies,
+  ) {
     this.vscode = vscodeLike;
+    this.localAgent =
+      dependencies.localAgent ??
+      createLocalAgentController({
+        onStateChange: () => {
+          this.updateStatusBar();
+          void this.threadPanel.refreshIfOpen();
+        },
+      });
     this.threadPanel = createThreadPanelController(this.vscode);
   }
 
@@ -188,6 +213,21 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
     context.subscriptions.push(
       this.vscode.commands.registerCommand("vibedeckBridge.stopServer", async () => {
         await this.stopServer(true);
+      }),
+    );
+    context.subscriptions.push(
+      this.vscode.commands.registerCommand("vibedeckBridge.startAgent", async () => {
+        await this.startAgent(true);
+      }),
+    );
+    context.subscriptions.push(
+      this.vscode.commands.registerCommand("vibedeckBridge.stopAgent", async () => {
+        await this.stopAgent(true);
+      }),
+    );
+    context.subscriptions.push(
+      this.vscode.commands.registerCommand("vibedeckBridge.restartAgent", async () => {
+        await this.restartAgent(true);
       }),
     );
     context.subscriptions.push(
@@ -299,6 +339,9 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
       }
 
       this.activeBridge = startedBridge;
+      if (startedBridge.settings.agent.autoStart) {
+        await this.localAgent.start(startedBridge.settings.agent, startedBridge.address);
+      }
       this.updateStatusBar();
       if (showMessage) {
         await this.showStartedMessage(startedBridge);
@@ -322,6 +365,8 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
     this.activeBridge = undefined;
     this.lastBridgeError = undefined;
 
+    await this.localAgent.stop();
+
     if (bridge?.runtime) {
       bridge.runtime.dispose();
     }
@@ -343,15 +388,75 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
     await this.startServer(false);
   }
 
+  private async startAgent(showMessage: boolean): Promise<void> {
+    if (!this.activeBridge) {
+      await this.startServer(false);
+    }
+    if (!this.activeBridge) {
+      return;
+    }
+
+    const status = await this.localAgent.start(this.readSettings().agent, this.activeBridge.address);
+    this.updateStatusBar();
+    if (showMessage) {
+      this.showAgentStatusMessage(status);
+    }
+  }
+
+  private async stopAgent(showMessage: boolean): Promise<void> {
+    await this.localAgent.stop();
+    this.updateStatusBar();
+    if (showMessage) {
+      void this.vscode.window.showInformationMessage("VibeDeck local agent stopped");
+    }
+  }
+
+  private async restartAgent(showMessage: boolean): Promise<void> {
+    if (!this.activeBridge) {
+      await this.startServer(false);
+    }
+    if (!this.activeBridge) {
+      return;
+    }
+
+    const status = await this.localAgent.start(this.readSettings().agent, this.activeBridge.address);
+    this.updateStatusBar();
+    if (showMessage) {
+      this.showAgentStatusMessage(status);
+    }
+  }
+
+  private showAgentStatusMessage(status: LocalAgentStatus): void {
+    const message = describeAgentStatus(status);
+    if (status.state === "running") {
+      void this.vscode.window.showInformationMessage(message);
+      return;
+    }
+    if (status.state === "starting") {
+      void this.vscode.window.showWarningMessage(message);
+      return;
+    }
+    if (status.state === "error") {
+      void this.vscode.window.showErrorMessage(message);
+      return;
+    }
+    void this.vscode.window.showWarningMessage(message);
+  }
+
   private updateStatusBar(): void {
     if (!this.statusBarItem) {
       return;
     }
 
+    const agentStatus = this.localAgent.status();
+
     if (!this.activeBridge) {
       if (this.lastBridgeError) {
         this.statusBarItem.text = "VibeDeck: issue";
         this.statusBarItem.tooltip = `VibeDeck bridge stopped\nlast error: ${this.lastBridgeError}`;
+      } else if (agentStatus.state === "error") {
+        this.statusBarItem.text = "VibeDeck: agent!";
+        this.statusBarItem.tooltip = describeAgentStatus(agentStatus);
       } else {
         this.statusBarItem.text = "VibeDeck: stopped";
         this.statusBarItem.tooltip = "VibeDeck localhost bridge is stopped";
@@ -360,8 +465,17 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
       return;
     }
 
+    let suffix = "";
+    if (agentStatus.state === "running") {
+      suffix = " | agent";
+    } else if (agentStatus.state === "starting") {
+      suffix = " | boot";
+    } else if (agentStatus.state === "error") {
+      suffix = " | agent!";
+    }
+
     this.statusBarItem.text =
-      `VibeDeck: ${this.activeBridge.address}` +
+      `VibeDeck: ${this.activeBridge.address}${suffix}` +
       (this.activeBridge.diagnostics?.missingOptional.length ? " !" : "");
     this.statusBarItem.tooltip = this.describeBridgeStatus(this.activeBridge);
     this.statusBarItem.show();
@@ -380,6 +494,7 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
         `configured address: ${address}`,
         `agent env: ${buildAgentEnvCommand(address)}`,
         `provider: ${describeProvider(settings)}`,
+        describeAgentStatus(this.localAgent.status()),
       ];
       const smokeCommand = buildSmokeCommand(settings, address);
       if (smokeCommand) {
@@ -406,6 +521,7 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
       tcpPort: normalizePort(config.get<number>("tcpPort", 7797)),
       commands: readCommandSettings(config),
       cursorAgent: readCursorAgentSettings(config, this.vscode.workspace.workspaceFolders),
+      agent: readLocalAgentSettings(config),
     };
   }
 
@@ -436,7 +552,8 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
 
   private async showBridgeStatus(): Promise<void> {
     const message = this.currentStatusMessage();
-    if (this.activeBridge?.diagnostics?.missingOptional.length || this.lastBridgeError) {
+    const agentStatus = this.localAgent.status();
+    if (this.activeBridge?.diagnostics?.missingOptional.length || this.lastBridgeError || agentStatus.state === "error") {
       void this.vscode.window.showWarningMessage(message);
       return;
     }
@@ -496,6 +613,11 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
 
   private async showStartedMessage(bridge: ActiveBridge): Promise<void> {
     const message = this.describeBridgeStatus(bridge);
+    const agentStatus = this.localAgent.status();
+    if (agentStatus.state === "error") {
+      void this.vscode.window.showWarningMessage(message);
+      return;
+    }
     if (bridge.diagnostics?.missingOptional.length) {
       void this.vscode.window.showWarningMessage(message);
       return;
@@ -527,6 +649,7 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
       `VibeDeck bridge: ${bridge.address} (${bridge.mode})`,
       `agent env: ${buildAgentEnvCommand(bridge.address)}`,
       `provider: ${describeProvider(bridge.settings)}`,
+      describeAgentStatus(this.localAgent.status()),
     ];
 
     const smokeCommand = buildSmokeCommand(bridge.settings, bridge.address);
@@ -614,6 +737,7 @@ function setOptionalCommand(
   }
   commands[key] = value;
 }
+
 function readOptionalCommand(
   config: BridgeExtensionConfigurationLike,
   key: string,
@@ -643,6 +767,14 @@ function describeCommandDiagnostics(
     `registered commands seen: ${diagnostics.availableCount}`,
     `required commands ready: ${diagnostics.required.length - diagnostics.missingRequired.length}/${diagnostics.required.length}`,
     `agent env: ${buildAgentEnvCommand(resolveAddress(settings))}`,
+    describeAgentStatus({
+      state: "stopped",
+      launchMode: settings.agent.launchMode,
+      baseUrl: toAgentBaseUrl(settings.agent),
+      command: settings.agent.launchMode,
+      repoRoot: settings.agent.repoRoot,
+      outputTail: [],
+    }),
   ];
 
   const smokeCommand = buildSmokeCommand(settings, resolveAddress(settings));
@@ -678,6 +810,32 @@ function describeProvider(settings: BridgeSettings): string {
   return settings.cursorAgent.useWsl
     ? `builtin cursor-agent via WSL${settings.cursorAgent.wslDistro ? ` (${settings.cursorAgent.wslDistro})` : ""}`
     : "builtin cursor-agent";
+}
+
+function describeAgentStatus(status: LocalAgentStatus): string {
+  const lines = [
+    `agent: ${status.state} (${status.baseUrl})`,
+    `agent launch mode: ${status.launchMode}`,
+    `agent command: ${status.command}`,
+  ];
+  if (status.repoRoot) {
+    lines.push(`agent repo root: ${status.repoRoot}`);
+  }
+  if (status.pid) {
+    lines.push(`agent pid: ${status.pid}`);
+  }
+  if (status.lastError) {
+    lines.push(`agent last error: ${status.lastError}`);
+  }
+  if (status.outputTail.length > 0) {
+    lines.push(`agent output: ${status.outputTail.join(" | ")}`);
+  }
+  return lines.join("\n");
+}
+
+function toAgentBaseUrl(settings: LocalAgentSettings): string {
+  const host = settings.host === "0.0.0.0" || settings.host === "::" ? "127.0.0.1" : settings.host;
+  return `http://${host}:${settings.port}`;
 }
 
 function resolveCommands(commands: Partial<CursorBridgeCommands>): CursorBridgeCommands {
@@ -752,28 +910,16 @@ function ensureCursorAgentHeadlessArgs(args: string[]): string[] {
 }
 
 function ensureCursorAgentTrustFlag(args: string[], enabled: boolean): string[] {
-  if (!enabled) {
-    return [...args];
-  }
-  if (args.includes("--trust")) {
-    return [...args];
+  if (!enabled || args.includes("--trust")) {
+    return args;
   }
   return [...args, "--trust"];
 }
 
 function ensureCursorAgentModelArg(args: string[], model: string): string[] {
-  const normalized = model.trim();
-  if (!normalized) {
-    return [...args];
+  const trimmedModel = model.trim();
+  if (!trimmedModel || args.includes("--model")) {
+    return args;
   }
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg === "--model" && index + 1 < args.length) {
-      return [...args];
-    }
-    if (arg.startsWith("--model=")) {
-      return [...args];
-    }
-  }
-  return [...args, "--model", normalized];
+  return [...args, "--model", trimmedModel];
 }

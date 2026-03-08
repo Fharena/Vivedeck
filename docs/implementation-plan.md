@@ -152,11 +152,13 @@
 - 모바일 상태 화면의 workspace adapter/runtime 정보 표시
 - Cursor extension shared thread panel(`vibedeckBridge.openThreadPanel`)
 - extension panel smoke(`npm --prefix extensions/vibedeck-bridge run smoke:panel`)
+- extension local agent 자동 부트스트랩(`vibedeckBridge.agent.*`, `VibeDeck: Start/Stop/Restart Local Agent`)
+- bootstrap smoke(`npm --prefix extensions/vibedeck-bridge run smoke:bootstrap`)
 - patch files를 thread event에 저장해 모바일/IDE가 thread detail만으로 review 상태 복원 가능
 
 ## 다음 작업 우선순위
 
-1. bridge/agent 자동 부트스트랩으로 IDE 세팅 최소화
+1. 모바일 앱 bootstrap(QR/discovery/최근 세션)으로 자동 세팅 축소
 2. Cursor 외 provider(Codex/Claude Code/Antigravity) 확장용 adapter mode 정리
 3. Windows smoke cleanup/agent 잠금 이슈 정리
 4. control timeout budget 운영 설정 외부화

@@ -70,7 +70,7 @@ docs/
 
 - 모바일 앱은 가능한 한 agent/runtime 정보를 자동 조회해 수동 입력을 줄이는 방향으로 유지
 - IDE 쪽은 extension 또는 배포 가능한 패키지로 최소 세팅만 요구하는 방향으로 유지
-- 현재는 `extensions/vibedeck-bridge` VSIX와 `scripts/vibedeck_doctor.ps1`, `scripts/package_vibedeck_bridge.ps1`로 온보딩을 단순화했고, 다음 단계는 bridge/agent 자동 부트스트랩입니다.
+- 현재는 `extensions/vibedeck-bridge` VSIX와 `scripts/vibedeck_doctor.ps1`, `scripts/package_vibedeck_bridge.ps1`, extension local agent 자동 부트스트랩까지 갖춘 상태입니다. 다음 단계는 모바일 앱 bootstrap 자동 세팅과 provider 다변화입니다.
 
 ## 로컬 개발
 
@@ -194,7 +194,7 @@ Invoke-WebRequest http://127.0.0.1:8080/metrics | Select-Object -ExpandProperty 
 
 ### 실제 extension host 연결
 
-Cursor/VS Code 안에서 localhost TCP bridge를 열고 agent가 거기에 붙게 하려면 다음 순서를 사용합니다.
+Cursor/VS Code 안에서 localhost TCP bridge와 local agent를 함께 올리려면 다음 순서를 사용합니다.
 
 ```bash
 npm --prefix adapters/cursor-bridge install
@@ -204,13 +204,24 @@ npm --prefix extensions/vibedeck-bridge run build
 ```
 
 1. `extensions/vibedeck-bridge`를 Cursor/VS Code extension으로 로드
-2. extension 설정에서 `vibedeckBridge.mode`를 `mock` 또는 `command`로 지정
+2. extension 설정에서 `vibedeckBridge.mode=mock` 또는 `command` 지정
 3. command mode를 쓸 때는 기본값 `vibedeckBridge.commandProvider=builtin_cursor_agent` 그대로 두면 extension이 기본 `vibedeck.*` 명령을 직접 등록
 4. Windows에서 Cursor CLI가 WSL에만 있으면 `vibedeckBridge.cursorAgent.useWsl=true`, 필요하면 `vibedeckBridge.cursorAgent.wslDistro=Ubuntu` 설정
 5. `.env.local` 같은 ignored 파일이 temp worktree snapshot에 필요하면 `vibedeckBridge.cursorAgent.syncIgnoredPaths=[".env.local"]`처럼 명시 allowlist로만 추가
-6. `VibeDeck: Validate Commands`로 command registry readiness 확인
-7. `VibeDeck: Copy Agent Env`로 bridge 주소를 복사해 agent 실행 터미널에 붙여 넣기
-8. `VibeDeck: Open Shared Threads`로 IDE 안에서 shared thread panel 열기
+6. local agent 자동 부트스트랩은 기본값 `vibedeckBridge.agent.autoStart=true`, `vibedeckBridge.agent.launchMode=auto`로 켜집니다.
+7. 저장소 checkout에서 extension을 직접 로드한 상태라면 `launchMode=auto`가 repo 레이아웃을 감지해 `go run ./cmd/agent` 경로를 내부에서 올립니다.
+8. 별도 binary를 쓸 때는 `vibedeckBridge.agent.launchMode=binary`, `vibedeckBridge.agent.binaryPath=<agent executable>`만 지정하면 됩니다.
+9. `VibeDeck: Open Shared Threads`로 IDE 안에서 shared thread panel 열기
+10. 수동 fallback이 필요할 때만 `VibeDeck: Copy Agent Env`로 bridge 주소를 복사해 외부 agent에 전달
+
+자동 부트스트랩에서 쓰는 핵심 설정:
+
+- `vibedeckBridge.agent.host`, `vibedeckBridge.agent.port`: local agent listen 주소
+- `vibedeckBridge.agent.repoRoot`: `go_run`/`binary` 모드의 실행 루트
+- `vibedeckBridge.agent.runProfileFile`: 기본값은 `repoRoot/configs/run-profiles.json`
+- `vibedeckBridge.agentBaseUrl`: 비워두면 panel이 `agent.host/port`를 자동 사용
+
+수동 fallback 예시:
 
 ```powershell
 $env:CURSOR_BRIDGE_TCP_ADDR = "127.0.0.1:7797"
@@ -224,16 +235,18 @@ mock mode smoke는 아래 스크립트로 바로 검증할 수 있습니다.
 powershell -ExecutionPolicy Bypass -File .\scripts\extension_host_smoke.ps1 -BridgeAddress "127.0.0.1:7797"
 ```
 
-command mode built-in provider smoke는 두 단계로 볼 수 있습니다.
+command mode built-in provider smoke는 세 단계로 검증합니다.
 
 ```powershell
 npm --prefix extensions/vibedeck-bridge run smoke:provider
 npm --prefix extensions/vibedeck-bridge run smoke:extension
+npm --prefix extensions/vibedeck-bridge run smoke:bootstrap
 ```
 
 - `smoke:provider`는 built-in provider와 command bridge의 low-level 경로를 검증합니다.
 - `smoke:extension`은 `extension.ts -> bridgeExtensionController -> built-in provider -> TCP bridge` 활성화 경로를 검증합니다.
 - `smoke:panel`은 `openThreadPanel -> agent HTTP -> shared thread refresh/action` 경로를 검증합니다.
+- `smoke:bootstrap`은 extension이 local agent lifecycle과 panel agent URL을 같이 관리하는 자동 부트스트랩 경로를 검증합니다.
 - `VibeDeck: Copy Smoke Command`는 mock mode에서는 `extension_host_smoke.ps1`, built-in command mode에서는 `npm --prefix extensions/vibedeck-bridge run smoke:extension` 명령을 복사합니다.
 
 실제 GUI extension host + built-in provider smoke는 아래 스크립트로 검증합니다.
@@ -246,10 +259,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\gui_extension_host_smoke.ps1 
 
 - `mock` 모드는 실제 extension host 안에서 등록된 mock command를 통해 `Prompt -> Patch -> Apply -> Run` smoke를 검증합니다.
 - `command` 모드의 기본값은 built-in `cursor-agent` provider이며, 별도 외부 command ID 없이도 기본 `vibedeck.*` 매핑으로 시작할 수 있습니다.
-- `smoke:extension`으로 저장소 안의 activation path를 자동 검증하고, `gui_extension_host_smoke.ps1`로 실제 Cursor GUI extension host + real `cursor-agent` 경로까지 검증했습니다.
+- extension은 bridge와 local agent를 함께 관리할 수 있고, panel은 기본적으로 `agent.host/port`를 따라갑니다.
+- `smoke:extension`으로 저장소 안의 activation path를 자동 검증하고, `smoke:bootstrap`으로 local agent 자동 부트스트랩 경로를 검증합니다.
+- `gui_extension_host_smoke.ps1`로 실제 Cursor GUI extension host + real `cursor-agent` 경로까지 검증했습니다.
 - built-in provider와 Go `cursor_agent_cli` adapter는 둘 다 ignored 파일을 기본 비동기화로 두고, 명시 allowlist와 일치하는 항목만 temp worktree snapshot에 복사합니다.
 - 외부 대시보드용 Prometheus scrape endpoint(`/metrics`)와 control handler latency/timeout 메트릭을 제공합니다.
-- 현재 남은 큰 과제는 bridge/agent 자동 부트스트랩, Cursor 외 provider 확장, Windows cleanup warning 정리, timeout budget 운영 설정 외부화, 설치 산출물 릴리스 자동화입니다.
+- 현재 남은 큰 과제는 모바일 앱 자동 세팅 bootstrap, Cursor 외 provider 확장, Windows cleanup warning 정리, timeout budget 운영 설정 외부화, 설치 산출물 릴리스 자동화입니다.
 - Windows에서는 smoke 종료 직후 `agent.exe` 잠금 때문에 temp root cleanup warning이 남을 수 있습니다.
 
 ### VSIX 패키징
@@ -266,7 +281,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package_vibedeck_bridge.ps1 -
 
 추가 옵션:
 
-- `-RunSmoke`: package 전 `smoke:provider`, `smoke:extension` 같이 실행
+- `-RunSmoke`: package 전 `smoke:provider`, `smoke:extension`, `smoke:panel`, `smoke:bootstrap` 같이 실행
 - `-SkipCheck`: `npm run check` 생략
 
 생성 후 설치 예시:

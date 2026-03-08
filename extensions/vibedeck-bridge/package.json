@@ -21,7 +21,10 @@
     "onCommand:vibedeckBridge.validateCommands",
     "onCommand:vibedeckBridge.copyAgentEnv",
     "onCommand:vibedeckBridge.copySmokeCommand",
-    "onCommand:vibedeckBridge.openThreadPanel"
+    "onCommand:vibedeckBridge.openThreadPanel",
+    "onCommand:vibedeckBridge.startAgent",
+    "onCommand:vibedeckBridge.stopAgent",
+    "onCommand:vibedeckBridge.restartAgent"
   ],
   "contributes": {
     "commands": [
@@ -32,6 +35,18 @@
       {
         "command": "vibedeckBridge.stopServer",
         "title": "VibeDeck: Stop Bridge"
+      },
+      {
+        "command": "vibedeckBridge.startAgent",
+        "title": "VibeDeck: Start Local Agent"
+      },
+      {
+        "command": "vibedeckBridge.stopAgent",
+        "title": "VibeDeck: Stop Local Agent"
+      },
+      {
+        "command": "vibedeckBridge.restartAgent",
+        "title": "VibeDeck: Restart Local Agent"
       },
       {
         "command": "vibedeckBridge.showStatus",
@@ -210,14 +225,89 @@
         },
         "vibedeckBridge.agentBaseUrl": {
           "type": "string",
-          "default": "http://127.0.0.1:8080",
-          "description": "Agent HTTP base URL used by the shared thread panel."
+          "default": "",
+          "description": "Optional override for the shared thread panel agent HTTP base URL. Leave empty to follow vibedeckBridge.agent.host/port."
         },
         "vibedeckBridge.panelAutoRefreshMs": {
           "type": "number",
           "default": 4000,
           "minimum": 1000,
           "description": "Auto-refresh interval for the shared thread panel in milliseconds."
+        },
+        "vibedeckBridge.agent.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start the local agent automatically after the bridge is ready. Manual launchMode disables spawning."
+        },
+        "vibedeckBridge.agent.launchMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "manual",
+            "go_run",
+            "binary"
+          ],
+          "default": "auto",
+          "description": "Local agent launch strategy. auto picks go_run when the repo layout is available, otherwise manual."
+        },
+        "vibedeckBridge.agent.host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "Host interface for the local agent. The panel default URL follows this host."
+        },
+        "vibedeckBridge.agent.port": {
+          "type": "number",
+          "default": 8080,
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Listen port for the local agent. The panel default URL follows this port."
+        },
+        "vibedeckBridge.agent.goBin": {
+          "type": "string",
+          "default": "go",
+          "description": "Go executable used when launchMode=go_run."
+        },
+        "vibedeckBridge.agent.repoRoot": {
+          "type": "string",
+          "default": "",
+          "description": "VibeDeck repo or runtime root used by go_run or binary launch modes. Leave empty to infer from the extension location when possible."
+        },
+        "vibedeckBridge.agent.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Agent executable path used when launchMode=binary."
+        },
+        "vibedeckBridge.agent.args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Additional process arguments passed to the local agent."
+        },
+        "vibedeckBridge.agent.extraEnv": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Extra environment variables passed to the local agent in KEY=VALUE form."
+        },
+        "vibedeckBridge.agent.runProfileFile": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute RUN_PROFILE_FILE path for the local agent. Leave empty to use repoRoot/configs/run-profiles.json."
+        },
+        "vibedeckBridge.agent.signalingBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8081",
+          "description": "SIGNALING_BASE_URL passed to the local agent process."
+        },
+        "vibedeckBridge.agent.readyTimeoutMs": {
+          "type": "number",
+          "default": 15000,
+          "minimum": 1000,
+          "description": "Timeout in milliseconds for waiting until the local agent health check is ready."
         }
       }
     }
@@ -228,7 +318,8 @@
     "smoke:provider": "npm run build && node ./scripts/command_provider_smoke.mjs",
     "smoke:extension": "npm run build && node ./scripts/extension_runtime_smoke.mjs",
     "package:vsix": "npm run build && node ./scripts/package_vsix.mjs",
-    "smoke:panel": "npm run build && node ./scripts/thread_panel_smoke.mjs"
+    "smoke:panel": "npm run build && node ./scripts/thread_panel_smoke.mjs",
+    "smoke:bootstrap": "npm run build && node ./scripts/bootstrap_runtime_smoke.mjs"
   },
   "dependencies": {
     "@vibedeck/cursor-bridge": "file:../../adapters/cursor-bridge"
