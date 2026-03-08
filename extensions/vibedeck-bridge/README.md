@@ -1,6 +1,6 @@
 # VibeDeck Bridge Extension
 
-이 패키지는 Cursor/VS Code extension host 안에서 localhost TCP bridge를 열어 VibeDeck agent가 실제 editor 프로세스에 붙을 수 있게 합니다.
+이 패키지는 Cursor/VS Code extension host 안에서 localhost TCP bridge를 열고, 필요하면 local agent까지 같이 올려 VibeDeck이 editor 프로세스에 붙을 수 있게 합니다.
 
 ## 모드
 
@@ -55,7 +55,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\vibedeck_doctor.ps1
 
 주요 설정:
 
-- `vibedeckBridge.agentBaseUrl`: 기본값 `http://127.0.0.1:8080`
+- `vibedeckBridge.agent.host`: 기본값 `127.0.0.1`
+- `vibedeckBridge.agent.port`: 기본값 `8080`
+- `vibedeckBridge.agentBaseUrl`: 기본값 빈 값, 비우면 `agent.host/port` 사용
 - `vibedeckBridge.panelAutoRefreshMs`: 기본값 `4000`
 
 panel smoke:
@@ -69,6 +71,48 @@ npm run smoke:panel
 - panel 명령 등록과 open/reveal 경로
 - agent HTTP thread 조회/refresh
 - panel에서 `PROMPT_SUBMIT`, `PATCH_APPLY`, `RUN_PROFILE`, `OPEN_LOCATION` 제어
+
+## local agent 자동 부트스트랩
+
+기본값은 `vibedeckBridge.agent.autoStart=true`, `vibedeckBridge.agent.launchMode=auto` 입니다.
+이 조합이면 extension이 bridge를 띄운 뒤 local agent도 같이 올리고, shared thread panel은 같은 host/port를 자동으로 사용합니다.
+
+지원 launch mode:
+
+- `auto`: extension 위치에서 VibeDeck repo 구조를 감지하면 `go_run`, 아니면 `manual`
+- `go_run`: `go run ./cmd/agent`
+- `binary`: 지정한 실행 파일을 직접 실행
+- `manual`: extension이 agent를 띄우지 않음
+
+주요 설정:
+
+- `vibedeckBridge.agent.repoRoot`: `go_run`/`binary` 실행 루트
+- `vibedeckBridge.agent.goBin`: `go_run` 모드의 Go 실행 파일
+- `vibedeckBridge.agent.binaryPath`: `binary` 모드의 agent 실행 파일 경로
+- `vibedeckBridge.agent.args`: 추가 실행 인자
+- `vibedeckBridge.agent.extraEnv`: 추가 환경변수(`KEY=VALUE`)
+- `vibedeckBridge.agent.runProfileFile`: 비우면 `repoRoot/configs/run-profiles.json`
+- `vibedeckBridge.agent.signalingBaseUrl`: agent에 전달할 signaling base URL
+- `vibedeckBridge.agent.readyTimeoutMs`: `healthz` ready 대기 시간
+
+명령:
+
+- `VibeDeck: Start Local Agent`
+- `VibeDeck: Stop Local Agent`
+- `VibeDeck: Restart Local Agent`
+- `VibeDeck: Show Bridge Status`
+
+자동 부트스트랩 smoke:
+
+```powershell
+npm run smoke:bootstrap
+```
+
+이 smoke는 다음을 검증합니다.
+
+- extension activation 후 bridge + local agent 상태 반영
+- status bar / show status가 agent 상태를 같이 노출하는지
+- shared thread panel이 자동으로 local agent URL을 따라가는지
 
 ## command mode
 
@@ -95,7 +139,9 @@ npm run smoke:panel
 - ignored 파일은 기본으로 복사하지 않으며, `.env.local` 같은 파일이 필요할 때만 `vibedeckBridge.cursorAgent.syncIgnoredPaths`에 명시합니다.
 - `openLocation/getWorkspaceMetadata/getLatestTerminalError`는 optional이라 누락 시 경고만 표시합니다.
 
-### Agent 연결
+### Agent 연결 fallback
+
+자동 부트스트랩을 쓰지 않을 때만 아래 수동 연결을 사용합니다.
 
 - `VibeDeck: Copy Agent Env` 명령은 현재 bridge 주소 기준으로 PowerShell 환경변수 문자열을 클립보드에 복사합니다.
 - built-in provider일 때 `VibeDeck: Copy Smoke Command`는 extension 활성화 smoke 명령을 복사합니다.
