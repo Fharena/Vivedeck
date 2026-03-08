@@ -46,6 +46,21 @@ func TestCursorAgentCLIHelperProcess(t *testing.T) {
 		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
 			panic(err)
 		}
+	case "append_required_file":
+		requiredRelativePath := os.Getenv("VIBEDECK_TEST_REQUIRED_FILE")
+		requiredPath := filepath.Join(cwd, filepath.FromSlash(requiredRelativePath))
+		requiredContent, err := os.ReadFile(requiredPath)
+		if err != nil {
+			panic("required snapshot file missing: " + requiredRelativePath)
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			panic(err)
+		}
+		updated := strings.TrimRight(string(content), "\n") + "\n" + strings.TrimSpace(string(requiredContent)) + "\n"
+		if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+			panic(err)
+		}
 	default:
 		panic("unknown helper mode: " + mode)
 	}
@@ -220,6 +235,80 @@ func TestCursorAgentCLIAdapterRunProfileAndContext(t *testing.T) {
 	}
 }
 
+func TestCursorAgentCLIAdapterDoesNotSyncIgnoredFilesByDefault(t *testing.T) {
+	repo := newCursorAgentTestRepo(t, map[string]string{
+		".gitignore":  ".env.local\n",
+		"src/app.txt": "alpha\n",
+	})
+	writeTestFile(t, filepath.Join(repo, ".env.local"), "ignored-secret\n")
+
+	adapter := newTestCursorAgentCLIAdapterWithOptions(
+		t,
+		repo,
+		"append_required_file",
+		"src/app.txt",
+		nil,
+		[]string{"VIBEDECK_TEST_REQUIRED_FILE=.env.local"},
+	)
+
+	_, err := adapter.SubmitTask(context.Background(), SubmitTaskInput{Prompt: "use ignored file"})
+	if err == nil {
+		t.Fatal("expected submit task to fail when ignored file is not synced")
+	}
+	if !strings.Contains(err.Error(), "required snapshot file missing") {
+		t.Fatalf("expected missing ignored file error, got %v", err)
+	}
+}
+
+func TestCursorAgentCLIAdapterSyncsExplicitIgnoredFiles(t *testing.T) {
+	repo := newCursorAgentTestRepo(t, map[string]string{
+		".gitignore":  ".env.local\n",
+		"src/app.txt": "alpha\n",
+	})
+	writeTestFile(t, filepath.Join(repo, ".env.local"), "ignored-secret\n")
+
+	adapter := newTestCursorAgentCLIAdapterWithOptions(
+		t,
+		repo,
+		"append_required_file",
+		"src/app.txt",
+		[]string{".env.local"},
+		[]string{"VIBEDECK_TEST_REQUIRED_FILE=.env.local"},
+	)
+
+	handle, err := adapter.SubmitTask(context.Background(), SubmitTaskInput{Prompt: "use ignored file"})
+	if err != nil {
+		t.Fatalf("submit task: %v", err)
+	}
+
+	patch, err := adapter.GetPatch(context.Background(), handle.TaskID)
+	if err != nil {
+		t.Fatalf("get patch: %v", err)
+	}
+	if patch == nil || len(patch.Files) != 1 {
+		t.Fatalf("unexpected patch payload: %+v", patch)
+	}
+	if !strings.Contains(patch.Files[0].Hunks[0].Diff, "ignored-secret") {
+		t.Fatalf("patch should include ignored file content: %s", patch.Files[0].Hunks[0].Diff)
+	}
+
+	applyResult, err := adapter.ApplyPatch(context.Background(), ApplyPatchInput{
+		TaskID: handle.TaskID,
+		Mode:   "all",
+	})
+	if err != nil {
+		t.Fatalf("apply patch: %v", err)
+	}
+	if applyResult.Status != "success" {
+		t.Fatalf("expected apply success, got %+v", applyResult)
+	}
+
+	content := readTestFile(t, filepath.Join(repo, "src", "app.txt"))
+	if !strings.Contains(content, "ignored-secret") {
+		t.Fatalf("ignored file content should be reflected after apply: %s", content)
+	}
+}
+
 func TestBuildWSLCursorAgentArgs(t *testing.T) {
 	args := buildWSLCursorAgentArgs("Ubuntu", "/home/test/.local/bin/cursor-agent", []string{"--print", "--output-format", "json"})
 	want := []string{
@@ -285,19 +374,31 @@ func TestEnsureCursorAgentModelArg(t *testing.T) {
 	}
 }
 func newTestCursorAgentCLIAdapter(t *testing.T, repo, mode, targetFile string) *CursorAgentCLIAdapter {
+	return newTestCursorAgentCLIAdapterWithOptions(t, repo, mode, targetFile, nil, nil)
+}
+
+func newTestCursorAgentCLIAdapterWithOptions(
+	t *testing.T,
+	repo, mode, targetFile string,
+	syncIgnoredPaths []string,
+	extraEnv []string,
+) *CursorAgentCLIAdapter {
 	t.Helper()
+	cursorAgentEnv := []string{
+		"GO_WANT_HELPER_PROCESS=1",
+		"VIBEDECK_TEST_CURSOR_AGENT_MODE=" + mode,
+		"VIBEDECK_TEST_TARGET_FILE=" + targetFile,
+	}
+	cursorAgentEnv = append(cursorAgentEnv, extraEnv...)
 	cfg := CursorAgentCLIConfig{
-		WorkspaceRoot:   repo,
-		GitBin:          "git",
-		CursorAgentBin:  os.Args[0],
-		CursorAgentArgs: []string{"-test.run=TestCursorAgentCLIHelperProcess", "--"},
-		CursorAgentEnv: []string{
-			"GO_WANT_HELPER_PROCESS=1",
-			"VIBEDECK_TEST_CURSOR_AGENT_MODE=" + mode,
-			"VIBEDECK_TEST_TARGET_FILE=" + targetFile,
-		},
-		PromptTimeout: 30 * time.Second,
-		RunTimeout:    30 * time.Second,
+		WorkspaceRoot:    repo,
+		GitBin:           "git",
+		CursorAgentBin:   os.Args[0],
+		CursorAgentArgs:  []string{"-test.run=TestCursorAgentCLIHelperProcess", "--"},
+		CursorAgentEnv:   cursorAgentEnv,
+		SyncIgnoredPaths: syncIgnoredPaths,
+		PromptTimeout:    30 * time.Second,
+		RunTimeout:       30 * time.Second,
 	}
 	adapter, err := NewCursorAgentCLIAdapter(context.Background(), cfg)
 	if err != nil {

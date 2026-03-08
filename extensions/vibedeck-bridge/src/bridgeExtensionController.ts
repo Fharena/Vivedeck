@@ -567,6 +567,7 @@ function readCursorAgentSettings(
       model,
     ),
     cursorAgentEnv: readStringArray(config, "cursorAgent.extraEnv"),
+    syncIgnoredPaths: readStringArray(config, "cursorAgent.syncIgnoredPaths"),
     useWsl: config.get<boolean>("cursorAgent.useWsl", false),
     wslDistro: readOptionalCommand(config, "cursorAgent.wslDistro"),
     promptTimeoutMs: normalizeDuration(

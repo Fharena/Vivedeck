@@ -35,6 +35,7 @@ Windows에서는 종료 직후 `agent.exe` 잠금으로 temp root cleanup warnin
 - `vibedeckBridge.cursorAgent.wslDistro`: optional
 - `vibedeckBridge.cursorAgent.extraArgs`: 추가 CLI 인자
 - `vibedeckBridge.cursorAgent.extraEnv`: 추가 환경변수(`KEY=VALUE`)
+- `vibedeckBridge.cursorAgent.syncIgnoredPaths`: temp worktree snapshot에 복사할 ignored 파일 pathspec allowlist
 - `vibedeckBridge.cursorAgent.trustWorkspace`: 기본값 `true`
 - `vibedeckBridge.cursorAgent.model`: 기본값 `auto`
 
@@ -42,6 +43,7 @@ Windows에서는 종료 직후 `agent.exe` 잠금으로 temp root cleanup warnin
 
 - `VibeDeck: Validate Commands` 명령으로 현재 extension host에 등록된 command ID를 검사할 수 있습니다.
 - built-in provider가 켜져 있으면 기본 `vibedeck.*` 명령이 자동 등록되므로, command mode는 기본 설정만으로 통과해야 합니다.
+- ignored 파일은 기본으로 복사하지 않으며, `.env.local` 같은 파일이 필요할 때만 `vibedeckBridge.cursorAgent.syncIgnoredPaths`에 명시합니다.
 - `openLocation/getWorkspaceMetadata/getLatestTerminalError`는 optional이라 누락 시 경고만 표시합니다.
 
 ### Agent 연결
@@ -66,6 +68,7 @@ npm run smoke:provider
 
 - built-in command provider가 기본 `vibedeck.*` 명령을 등록하는지
 - command bridge가 command registry를 통해 `submitTask/getPatch/applyPatch/runProfile/getRunResult`를 호출하는지
+- ignored allowlist에 포함한 파일이 temp worktree snapshot으로만 제한적으로 복사되는지
 - fake cursor-agent가 만든 diff가 patch bundle/apply/run result로 정상 전달되는지
 
 extension activation path smoke:

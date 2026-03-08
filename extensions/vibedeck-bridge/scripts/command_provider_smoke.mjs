@@ -20,9 +20,10 @@ try {
   await writeFile(
     fakeAgentPath,
     [
-      'import { writeFileSync } from "node:fs";',
+      'import { readFileSync, writeFileSync } from "node:fs";',
       'import path from "node:path";',
-      'writeFileSync(path.join(process.cwd(), "notes.txt"), "base\\nsmoke-provider\\n", "utf8");',
+      'const secret = readFileSync(path.join(process.cwd(), ".env.local"), "utf8").trim();',
+      'writeFileSync(path.join(process.cwd(), "notes.txt"), `base\\n${secret}\\n`, "utf8");',
       'process.stdout.write(JSON.stringify({ summary: "updated notes.txt" }));',
     ].join("\n"),
     "utf8",
@@ -35,6 +36,7 @@ try {
     cursorAgentBin: process.execPath,
     cursorAgentArgs: [fakeAgentPath],
     cursorAgentEnv: [],
+    syncIgnoredPaths: [".env.local"],
     useWsl: false,
     promptTimeoutMs: 30000,
     runTimeoutMs: 30000,
@@ -108,7 +110,7 @@ try {
     assert.ok(patch, "patch should be returned");
     assert.equal(patch.files.length, 1);
     assert.equal(patch.files[0].path, "notes.txt");
-    assert.match(patch.files[0].hunks[0].diff, /smoke-provider/);
+    assert.match(patch.files[0].hunks[0].diff, /ignored-secret/);
 
     const apply = await bridge.applyPatch({
       taskId: task.taskId,
@@ -127,7 +129,7 @@ try {
     assert.equal(runResult.status, "passed");
 
     const notesContent = await readFile(path.join(workspaceRoot, "notes.txt"), "utf8");
-    assert.equal(notesContent.trim(), "base\nsmoke-provider");
+    assert.equal(notesContent.trim(), "base\nignored-secret");
 
     const context = await bridge.getContext({
       options: {
@@ -167,7 +169,9 @@ async function seedGitWorkspace(workspaceRoot) {
   runGit(workspaceRoot, ["init"]);
   runGit(workspaceRoot, ["config", "user.name", "VibeDeck Smoke"]);
   runGit(workspaceRoot, ["config", "user.email", "vibedeck-smoke@example.local"]);
+  await writeFile(path.join(workspaceRoot, ".gitignore"), ".env.local\n", "utf8");
   await writeFile(path.join(workspaceRoot, "notes.txt"), "base\n", "utf8");
+  await writeFile(path.join(workspaceRoot, ".env.local"), "ignored-secret\n", "utf8");
   runGit(workspaceRoot, ["add", "-A"]);
   runGit(workspaceRoot, ["commit", "-m", "base"]);
 }

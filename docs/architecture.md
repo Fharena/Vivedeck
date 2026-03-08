@@ -56,7 +56,7 @@ TypeScript 브리지 패키지 구성:
 - `serveCursorExtensionBridge`, `serveStdioBridge`, `serveSocketBridge`가 newline-delimited JSON RPC over stdio/TCP 서버를 구성
 - extensions/vibedeck-bridge는 mock mode, built-in cursor-agent provider, external command registry 연동, 설정 기반 command ID 매핑, command registry readiness 검증, agent env 복사 명령을 제공하는 설치 가능한 extension package입니다.
 - `bridgeExtensionController`는 extension 활성화 로직을 주입 가능한 controller로 분리해 fake host 기반 smoke에서도 같은 시작 경로를 재사용합니다.
-- CursorAgentCLIAdapter는 네이티브 cursor-agent 또는 Windows WSL distro 안의 `~/.local/bin/cursor-agent`/`agent`를 감지해 임시 git worktree snapshot에서 실행하고, 생성된 diff를 PatchReadyPayload로 파싱한 뒤 실제 workspace에는 review 승인 후 git apply로만 반영합니다.
+- CursorAgentCLIAdapter는 네이티브 cursor-agent 또는 Windows WSL distro 안의 `~/.local/bin/cursor-agent`/`agent`를 감지해 임시 git worktree snapshot에서 실행하고, tracked 변경 + untracked 파일 + 명시 allowlist와 일치하는 ignored 파일만 snapshot에 반영한 뒤 생성된 diff를 PatchReadyPayload로 파싱합니다. 실제 workspace 반영은 review 승인 후 git apply로만 수행합니다.
 
 ## 에이전트-어댑터 연결
 
@@ -65,13 +65,13 @@ TypeScript 브리지 패키지 구성:
 - `CURSOR_BRIDGE_TCP_ADDR`가 설정되면 agent는 child process 대신 기존 localhost TCP bridge에 직접 연결합니다.
 - `WORKSPACE_ADAPTER_MODE=cursor_agent_cli`가 설정되면 bridge 대신 `CursorAgentCLIAdapter`를 사용합니다.
 - `CursorBridgeAdapter`(`internal/agent/cursor_bridge_adapter.go`)가 `name`, `capabilities`, `getContext`, `submitTask`, `getPatch`, `applyPatch`, `runProfile`, `getRunResult`, `openLocation` RPC를 담당합니다.
-- `CursorAgentCLIAdapter`(`internal/agent/cursor_agent_cli_adapter.go`)는 현재 workspace 상태를 temp worktree에 동기화하고, 네이티브 CLI 또는 WSL distro 내부의 실제 binary를 직접 실행해 diff만 회수합니다.
+- `CursorAgentCLIAdapter`(`internal/agent/cursor_agent_cli_adapter.go`)는 현재 workspace 상태를 temp worktree에 동기화하고, 네이티브 CLI 또는 WSL distro 내부의 실제 binary를 직접 실행해 diff만 회수합니다. ignored 파일은 기본 제외하고 `CURSOR_AGENT_SYNC_IGNORED_JSON` allowlist와 일치하는 항목만 snapshot에 포함합니다.
 - `GET /v1/agent/runtime/adapter`는 현재 adapter 이름, capability, mode, workspace root, binary 경로 같은 smoke 진단 정보를 노출합니다.
 - `scripts/cursor_agent_smoke.ps1`는 temp repo를 만들고 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` smoke를 자동 수행합니다. 현재 Windows + WSL + login 완료 환경에서 실제 smoke proof를 확보했습니다.
 - `scripts/extension_host_smoke.ps1`는 이미 떠 있는 extension host TCP bridge에 대해 bridge preflight 후 agent mock smoke를 수행합니다.
 - `scripts/gui_extension_host_smoke.ps1`는 실제 Cursor GUI extension host를 dev extension 모드로 띄우고, built-in cursor-agent provider 경로를 end-to-end로 검증합니다.
-- `npm --prefix extensions/vibedeck-bridge run smoke:provider`는 fake cursor-agent를 사용해 built-in command provider와 command bridge 경로를 결정적으로 검증합니다.
-- `npm --prefix extensions/vibedeck-bridge run smoke:extension`는 fake VS Code host + fake cursor-agent를 사용해 `extension.ts -> controller -> TCP bridge -> JSON-RPC` 활성화 경로를 검증합니다.
+- `npm --prefix extensions/vibedeck-bridge run smoke:provider`는 fake cursor-agent를 사용해 built-in command provider와 command bridge 경로를 결정적으로 검증합니다. ignored allowlist에 포함한 파일이 snapshot에 반영되는지도 함께 확인합니다.
+- `npm --prefix extensions/vibedeck-bridge run smoke:extension`는 fake VS Code host + fake cursor-agent를 사용해 `extension.ts -> controller -> TCP bridge -> JSON-RPC` 활성화 경로를 검증합니다. extension 설정의 `vibedeckBridge.cursorAgent.syncIgnoredPaths`도 이 smoke에서 같이 검증합니다.
 
 ## 프로토콜 전략
 

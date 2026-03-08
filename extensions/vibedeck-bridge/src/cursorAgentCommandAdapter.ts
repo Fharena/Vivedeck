@@ -27,6 +27,7 @@ export interface CursorAgentCommandAdapterConfig {
   cursorAgentBin: string;
   cursorAgentArgs: string[];
   cursorAgentEnv: string[];
+  syncIgnoredPaths: string[];
   useWsl: boolean;
   wslDistro?: string;
   promptTimeoutMs: number;
@@ -99,6 +100,7 @@ export async function createCursorAgentCommandAdapter(
     ...config,
     workspaceRoot,
     tempRoot,
+    syncIgnoredPaths: sanitizeSyncPathspecs(config.syncIgnoredPaths ?? []),
   });
 }
 
@@ -286,20 +288,48 @@ export class CursorAgentCommandAdapter implements WorkspaceAdapter {
       );
     }
 
+    const snapshotFiles = await this.listSnapshotFiles();
+    for (const relativePath of snapshotFiles) {
+      const sourcePath = path.join(this.config.workspaceRoot, path.normalize(relativePath));
+      const targetPath = path.join(worktreeDir, path.normalize(relativePath));
+      await copyRegularFile(sourcePath, targetPath);
+    }
+  }
+
+  private async listSnapshotFiles(): Promise<string[]> {
+    const files: string[] = [];
+    const seen = new Set<string>();
+    const appendOutput = (output: string): void => {
+      for (const relativePath of normalizeLines(output)) {
+        const trimmed = relativePath.trim();
+        if (trimmed.length === 0 || seen.has(trimmed)) {
+          continue;
+        }
+        seen.add(trimmed);
+        files.push(trimmed);
+      }
+    };
+
     const untrackedOutput = await this.runGit(this.config.workspaceRoot, [
       "ls-files",
       "--others",
       "--exclude-standard",
     ]);
-    for (const relativePath of normalizeLines(untrackedOutput)) {
-      const trimmed = relativePath.trim();
-      if (trimmed.length === 0) {
-        continue;
-      }
-      const sourcePath = path.join(this.config.workspaceRoot, path.normalize(trimmed));
-      const targetPath = path.join(worktreeDir, path.normalize(trimmed));
-      await copyRegularFile(sourcePath, targetPath);
+    appendOutput(untrackedOutput);
+
+    if (this.config.syncIgnoredPaths.length > 0) {
+      const ignoredOutput = await this.runGit(this.config.workspaceRoot, [
+        "ls-files",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+        "--",
+        ...this.config.syncIgnoredPaths,
+      ]);
+      appendOutput(ignoredOutput);
     }
+
+    return files.sort();
   }
 
   private async commitWorktreeBaseline(worktreeDir: string): Promise<void> {
@@ -823,6 +853,20 @@ function normalizeLines(value: string): string[] {
 
 function normalizeSlashes(value: string): string {
   return value.replace(/\\/g, "/");
+}
+
+function sanitizeSyncPathspecs(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (trimmed.length === 0 || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result.sort();
 }
 
 function joinNonEmpty(...values: string[]): string[] {

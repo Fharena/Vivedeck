@@ -16,9 +16,10 @@ try {
   await writeFile(
     fakeAgentPath,
     [
-      'import { writeFileSync } from "node:fs";',
+      'import { readFileSync, writeFileSync } from "node:fs";',
       'import path from "node:path";',
-      'writeFileSync(path.join(process.cwd(), "notes.txt"), "base\\nsmoke-extension\\n", "utf8");',
+      'const secret = readFileSync(path.join(process.cwd(), ".env.local"), "utf8").trim();',
+      'writeFileSync(path.join(process.cwd(), "notes.txt"), `base\\n${secret}\\n`, "utf8");',
       'process.stdout.write(JSON.stringify({ summary: "updated notes.txt through extension runtime" }));',
     ].join("\n"),
     "utf8",
@@ -45,6 +46,7 @@ try {
     ["vibedeckBridge.cursorAgent.bin", process.execPath],
     ["vibedeckBridge.cursorAgent.extraArgs", [fakeAgentPath]],
     ["vibedeckBridge.cursorAgent.extraEnv", []],
+    ["vibedeckBridge.cursorAgent.syncIgnoredPaths", [".env.local"]],
     ["vibedeckBridge.cursorAgent.trustWorkspace", false],
     ["vibedeckBridge.cursorAgent.model", ""],
     ["vibedeckBridge.cursorAgent.useWsl", false],
@@ -188,7 +190,7 @@ try {
     assert.equal(capabilities.supportsStructuredPatch, true);
 
     const task = await invokeBridgeJsonRpc(bridgeAddress, "submitTask", {
-      prompt: "Modify only notes.txt. Make the final contents exactly two lines: base and smoke-extension.",
+      prompt: "Modify only notes.txt. Make the final contents exactly two lines: base and ignored-secret.",
       template: "smoke",
       context: {
         changedFiles: [],
@@ -202,7 +204,7 @@ try {
     assert.ok(patch, "patch should be returned");
     assert.equal(patch.files.length, 1);
     assert.equal(patch.files[0].path, "notes.txt");
-    assert.match(patch.files[0].hunks[0].diff, /smoke-extension/);
+    assert.match(patch.files[0].hunks[0].diff, /ignored-secret/);
 
     const applyResult = await invokeBridgeJsonRpc(bridgeAddress, "applyPatch", {
       taskId: task.taskId,
@@ -233,7 +235,7 @@ try {
     assert.equal(contextResult.lastRunStatus, "passed");
 
     const notesContent = await readFile(path.join(workspaceRoot, "notes.txt"), "utf8");
-    assert.equal(notesContent.trim(), "base\nsmoke-extension");
+    assert.equal(notesContent.trim(), "base\nignored-secret");
 
     console.log(
       JSON.stringify(
@@ -313,7 +315,9 @@ async function seedGitWorkspace(workspaceRoot) {
   runGit(workspaceRoot, ["init"]);
   runGit(workspaceRoot, ["config", "user.name", "VibeDeck Smoke"]);
   runGit(workspaceRoot, ["config", "user.email", "vibedeck-smoke@example.local"]);
+  await writeFile(path.join(workspaceRoot, ".gitignore"), ".env.local\n", "utf8");
   await writeFile(path.join(workspaceRoot, "notes.txt"), "base\n", "utf8");
+  await writeFile(path.join(workspaceRoot, ".env.local"), "ignored-secret\n", "utf8");
   runGit(workspaceRoot, ["add", "-A"]);
   runGit(workspaceRoot, ["commit", "-m", "base"]);
 }
