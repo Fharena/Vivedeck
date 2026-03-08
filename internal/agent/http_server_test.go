@@ -16,7 +16,8 @@ import (
 
 func newTestHTTPServer() (*HTTPServer, *runtime.AckTracker, *ControlMetrics) {
 	adapter := NewMockAdapter()
-	orch := NewOrchestrator(adapter, DefaultRunProfiles(), nil)
+	threadStore := NewThreadStore()
+	orch := NewOrchestrator(adapter, DefaultRunProfiles(), threadStore)
 	stateManager := runtime.NewStateManager(runtime.DefaultManagerConfig())
 	ackTracker := runtime.NewAckTracker(2 * time.Second)
 	controlMetrics := NewControlMetrics()
@@ -30,6 +31,7 @@ func newTestHTTPServer() (*HTTPServer, *runtime.AckTracker, *ControlMetrics) {
 		ackTracker,
 		controlMetrics,
 		p2pManager,
+		HTTPServerConfig{},
 	)
 
 	return server, ackTracker, controlMetrics
@@ -361,5 +363,45 @@ func TestHTTPServerP2PStatusEndpoint(t *testing.T) {
 
 	if status.Active {
 		t.Fatalf("expected p2p status inactive")
+	}
+}
+
+func TestHTTPServerBootstrapEndpoint(t *testing.T) {
+	server, _, _ := newTestHTTPServer()
+	server.orchestrator.ThreadStore().EnsureThread("thread-bootstrap-1", "sid-bootstrap-1", "bootstrap thread")
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/agent/bootstrap", nil)
+	req.Host = "192.168.0.24:8080"
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var body BootstrapResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode bootstrap response: %v", err)
+	}
+	if body.AgentBaseURL != "http://192.168.0.24:8080" {
+		t.Fatalf("expected agent base url to follow request host, got %q", body.AgentBaseURL)
+	}
+	if body.SignalingBaseURL != "http://192.168.0.24:8081" {
+		t.Fatalf("expected signaling base url to follow request host, got %q", body.SignalingBaseURL)
+	}
+	if body.WorkspaceRoot != "" {
+		t.Fatalf("expected empty workspace root for mock adapter, got %q", body.WorkspaceRoot)
+	}
+	if body.Adapter.Name != "mock-cursor" || body.Adapter.Provider != "cursor" || !body.Adapter.Ready {
+		t.Fatalf("unexpected bootstrap adapter info: %+v", body.Adapter)
+	}
+	if body.CurrentThreadID != "thread-bootstrap-1" {
+		t.Fatalf("expected current thread id thread-bootstrap-1, got %q", body.CurrentThreadID)
+	}
+	if len(body.RecentThreads) != 1 {
+		t.Fatalf("expected 1 recent thread, got %+v", body.RecentThreads)
+	}
+	if !body.RecentThreads[0].Current {
+		t.Fatalf("expected first recent thread to be current")
 	}
 }

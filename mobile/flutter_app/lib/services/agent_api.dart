@@ -82,6 +82,14 @@ class AgentApi {
     );
   }
 
+  Future<Map<String, dynamic>> bootstrap(String baseUrl) {
+    return _request(
+      method: 'GET',
+      baseUrl: baseUrl,
+      path: '/v1/agent/bootstrap',
+    );
+  }
+
   Future<Map<String, dynamic>> runProfiles(String baseUrl) {
     return _request(
       method: 'GET',

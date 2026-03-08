@@ -19,9 +19,10 @@ type HTTPServer struct {
 	controlMetrics *ControlMetrics
 	controlRouter  *ControlRouter
 	p2pManager     *P2PSessionManager
+	config         HTTPServerConfig
 }
 
-func NewHTTPServer(adapter WorkspaceAdapter, orchestrator *Orchestrator, stateManager *runtime.StateManager, ackTracker *runtime.AckTracker, controlMetrics *ControlMetrics, p2pManager *P2PSessionManager) *HTTPServer {
+func NewHTTPServer(adapter WorkspaceAdapter, orchestrator *Orchestrator, stateManager *runtime.StateManager, ackTracker *runtime.AckTracker, controlMetrics *ControlMetrics, p2pManager *P2PSessionManager, config HTTPServerConfig) *HTTPServer {
 	return &HTTPServer{
 		adapter:        adapter,
 		orchestrator:   orchestrator,
@@ -30,6 +31,7 @@ func NewHTTPServer(adapter WorkspaceAdapter, orchestrator *Orchestrator, stateMa
 		controlMetrics: controlMetrics,
 		controlRouter:  NewControlRouter(orchestrator, ackTracker),
 		p2pManager:     p2pManager,
+		config:         normalizeHTTPServerConfig(config),
 	}
 }
 
@@ -41,6 +43,7 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("/v1/agent/runtime/state", s.handleRuntimeState)
 	mux.HandleFunc("/v1/agent/runtime/metrics", s.handleRuntimeMetrics)
 	mux.HandleFunc("/v1/agent/runtime/adapter", s.handleRuntimeAdapter)
+	mux.HandleFunc("/v1/agent/bootstrap", s.handleBootstrap)
 	mux.HandleFunc("/v1/agent/runtime/acks/expired", s.handleExpiredAcks)
 	mux.HandleFunc("/v1/agent/runtime/acks/pending", s.handlePendingAcks)
 	mux.HandleFunc("/v1/agent/run-profiles", s.handleRunProfiles)

@@ -65,13 +65,15 @@ docs/
 - `PROMPT_SUBMIT -> PATCH_READY -> PATCH_APPLY -> RUN_PROFILE` 흐름을 모바일과 IDE 양쪽에서 확인/승인 가능
 - 실행 프로파일 목록은 agent가 동적으로 제공
 - 실행 결과는 status/summary/top errors뿐 아니라 전체 출력까지 모바일 검토 화면에 표시
+- 모바일 상태 화면이 `GET /v1/agent/bootstrap`로 agent/signaling/workspace/current thread/recent threads를 자동 조회해 기본 연결값을 채움
+- 모바일 앱이 최근 연결 host를 기억하고 다시 불러올 수 있음
 - Cursor는 첫 번째 provider이며, 장기적으로는 다른 AI IDE provider도 같은 `WorkspaceAdapter` 계약에 맞춰 붙이는 구조를 목표로 함
 
 ## 세팅 방향
 
-- 모바일 앱은 가능한 한 agent/runtime 정보를 자동 조회해 수동 입력을 줄이는 방향으로 유지
+- 모바일 앱은 `GET /v1/agent/bootstrap`와 최근 host 기억을 사용해 agent/signaling/thread 기본값을 자동 채우고, 다음 단계에서 QR/discovery로 수동 입력을 더 줄이는 방향으로 유지
 - IDE 쪽은 extension 또는 배포 가능한 패키지로 최소 세팅만 요구하는 방향으로 유지
-- 현재는 `extensions/vibedeck-bridge` VSIX와 `scripts/vibedeck_doctor.ps1`, `scripts/package_vibedeck_bridge.ps1`, extension local agent 자동 부트스트랩, shared thread history 영속화까지 갖춘 상태입니다. 다음 단계는 모바일 앱 bootstrap 자동 세팅과 provider 다변화입니다.
+- 현재는 `extensions/vibedeck-bridge` VSIX, extension local agent 자동 부트스트랩, shared thread history 영속화, 모바일 bootstrap 자동 세팅 v1까지 갖춘 상태입니다. 다음 단계는 QR/discovery 기반 bootstrap v2와 provider 다변화입니다.
 
 ## 로컬 개발
 
@@ -187,6 +189,31 @@ shared thread history는 기본적으로 디스크에 영속화됩니다.
 - override: `THREAD_STORE_FILE=<absolute path>`
 - 현재 범위: thread summary/event history 복원
 - 현재 제한: 진행 중 task/job 자체는 adapter 내부 상태까지 저장하지 않으므로, 재시작 뒤에는 과거 history는 보이지만 미완료 patch/apply/run을 이어서 재개하지는 못합니다.
+
+### 모바일 Bootstrap API
+
+모바일 앱은 `GET /v1/agent/bootstrap`를 먼저 호출해 agent/signaling/workspace/adapter/current thread/recent threads 기본값을 읽습니다.
+
+```json
+{
+  "agentBaseUrl": "http://192.168.0.24:8080",
+  "signalingBaseUrl": "http://192.168.0.24:8081",
+  "workspaceRoot": "C:\\repo\\workspace",
+  "adapter": {
+    "name": "cursor-agent-cli",
+    "mode": "cursor_agent_cli",
+    "provider": "cursor",
+    "ready": true
+  },
+  "currentThreadId": "thread-123",
+  "recentThreads": []
+}
+```
+
+공개 URL이 localhost가 아니어야 하면 아래 환경변수로 override할 수 있습니다.
+
+- `AGENT_PUBLIC_BASE_URL`
+- `SIGNALING_PUBLIC_BASE_URL`
 
 ### 운영 메트릭 Export
 

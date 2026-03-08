@@ -43,6 +43,17 @@ class _StatusScreenState extends State<StatusScreen> {
 
   String _msLabel(int value) => '${value}ms';
 
+  void _syncControllerText(TextEditingController controller, String value) {
+    if (controller.text == value) {
+      return;
+    }
+    controller.value = controller.value.copyWith(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+      composing: TextRange.empty,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -50,10 +61,17 @@ class _StatusScreenState extends State<StatusScreen> {
       builder: (context, _) {
         final state = widget.controller.connectionState;
         final runtime = widget.controller.adapterRuntime;
+        final bootstrap = widget.controller.bootstrap;
         final resolvedPairingCode =
             widget.controller.directPairingCode.isNotEmpty
                 ? widget.controller.directPairingCode
                 : widget.controller.pairingCode;
+
+        _syncControllerText(_agentUrlController, widget.controller.agentBaseUrl);
+        _syncControllerText(
+          _signalingUrlController,
+          widget.controller.signalingBaseUrl,
+        );
 
         if (_directPairingCodeController.text.isEmpty &&
             resolvedPairingCode.isNotEmpty) {
@@ -120,7 +138,7 @@ class _StatusScreenState extends State<StatusScreen> {
             const SizedBox(height: 12),
             _SectionCard(
               title: '연결 설정',
-              subtitle: '앱 시작 후 한 번만 맞추면 이후에는 같은 값을 재사용합니다.',
+              subtitle: 'Agent URL 하나만 맞추면 signaling 값도 자동 감지합니다.',
               accent: const Color(0xFFD6E9E3),
               background: Colors.white,
               child: Column(
@@ -156,12 +174,100 @@ class _StatusScreenState extends State<StatusScreen> {
                                   );
                                   await widget.controller.refreshStatus();
                                 },
-                          icon: const Icon(Icons.save_outlined),
-                          label: const Text('설정 저장 + 갱신'),
+                          icon: const Icon(Icons.auto_fix_high_outlined),
+                          label: const Text('설정 저장 + 자동 감지'),
                         ),
                       ),
                     ],
                   ),
+                  if (widget.controller.recentHosts.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text('최근 host', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: widget.controller.recentHosts
+                          .map(
+                            (entry) => ActionChip(
+                              label: Text(entry.agentBaseUrl),
+                              onPressed: widget.controller.isLoading
+                                  ? null
+                                  : () async {
+                                      await widget.controller.useRecentHost(entry);
+                                    },
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _SectionCard(
+              title: '자동 Bootstrap',
+              subtitle: 'agent가 현재 연결 host 기준으로 signaling/workspace/thread 기본값을 내려줍니다.',
+              accent: const Color(0xFFE7DBF8),
+              background: const Color(0xFFFAF7FF),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _MetricPill(
+                        label: 'Provider',
+                        value: bootstrap.adapter.provider.isEmpty
+                            ? '-'
+                            : bootstrap.adapter.provider,
+                      ),
+                      _MetricPill(
+                        label: 'Bootstrap Ready',
+                        value: bootstrap.adapter.ready ? 'true' : 'false',
+                      ),
+                      _MetricPill(
+                        label: 'Recent Threads',
+                        value: '${bootstrap.recentThreads.length}',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  _InfoRow(
+                    label: 'bootstrap agent',
+                    value: bootstrap.agentBaseUrl.isEmpty
+                        ? '-'
+                        : bootstrap.agentBaseUrl,
+                  ),
+                  _InfoRow(
+                    label: 'bootstrap signaling',
+                    value: bootstrap.signalingBaseUrl.isEmpty
+                        ? '-'
+                        : bootstrap.signalingBaseUrl,
+                  ),
+                  _InfoRow(
+                    label: 'bootstrap workspace',
+                    value: bootstrap.workspaceRoot.isEmpty
+                        ? '-'
+                        : bootstrap.workspaceRoot,
+                  ),
+                  _InfoRow(
+                    label: 'bootstrap current thread',
+                    value: bootstrap.currentThreadId.isEmpty
+                        ? '-'
+                        : bootstrap.currentThreadId,
+                  ),
+                  if (bootstrap.recentThreads.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text('최근 스레드', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 6),
+                    ...bootstrap.recentThreads.take(3).map(
+                      (thread) => Text(
+                        '• ${thread.title} (${thread.updatedAtLabel})${thread.current ? ' · current' : ''}',
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

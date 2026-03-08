@@ -1,4 +1,4 @@
-﻿name: vibedeck_mobile
+name: vibedeck_mobile
 description: VibeDeck Flutter mobile baseline (Prompt/Review/Status)
 publish_to: 'none'
 version: 0.1.0+1
@@ -12,6 +12,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   http: ^1.6.0
   flutter_webrtc: ^0.14.2
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:
