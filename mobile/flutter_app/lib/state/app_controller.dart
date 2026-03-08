@@ -4,6 +4,7 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 
 import '../services/agent_api.dart';
+import '../services/app_settings_store.dart';
 import '../services/mobile_direct_signaling_session.dart';
 import '../services/signaling_api.dart';
 
@@ -13,12 +14,15 @@ class AppController extends ChangeNotifier {
   AppController({
     AgentApi? api,
     DirectSessionFactory? directSessionFactory,
+    AppSettingsStore? settingsStore,
   })  : _api = api ?? AgentApi(),
         _directSessionFactory =
-            directSessionFactory ?? MobileDirectSignalingSession.new;
+            directSessionFactory ?? MobileDirectSignalingSession.new,
+        _settingsStore = settingsStore ?? InMemoryAppSettingsStore();
 
   final AgentApi _api;
   final DirectSessionFactory _directSessionFactory;
+  final AppSettingsStore _settingsStore;
 
   String agentBaseUrl = 'http://127.0.0.1:8080';
   String signalingBaseUrl = 'http://127.0.0.1:8081';
@@ -35,9 +39,16 @@ class AppController extends ChangeNotifier {
   int pendingAckCount = 0;
   AckMetricsView ackMetrics = const AckMetricsView();
   AdapterRuntimeView adapterRuntime = const AdapterRuntimeView();
+  BootstrapStatusView bootstrap = const BootstrapStatusView();
   UnmodifiableListView<RuntimeTransitionView> get runtimeHistory =>
       UnmodifiableListView(_runtimeHistory);
   final List<RuntimeTransitionView> _runtimeHistory = [];
+
+  UnmodifiableListView<SavedHostEntry> get recentHosts =>
+      UnmodifiableListView(_recentHosts);
+  final List<SavedHostEntry> _recentHosts = [];
+
+  bool _initialized = false;
 
   String promptDraft = '';
   String? currentJobId;
@@ -108,6 +119,24 @@ class AppController extends ChangeNotifier {
   }
 
   String get currentThreadState => selectedThreadSummary?.state ?? 'draft';
+
+  Future<void> initialize() async {
+    if (_initialized) {
+      return;
+    }
+    _initialized = true;
+    await _restoreSettings();
+    await refreshStatus();
+  }
+
+  Future<void> useRecentHost(SavedHostEntry host) {
+    agentBaseUrl = host.agentBaseUrl;
+    if (host.signalingBaseUrl.trim().isNotEmpty) {
+      signalingBaseUrl = host.signalingBaseUrl.trim();
+    }
+    notifyListeners();
+    return refreshStatus();
+  }
 
   void updateAgentBaseUrl(String value) {
     agentBaseUrl = value.trim();
@@ -317,6 +346,8 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _refreshStatusRaw() async {
+    await _refreshBootstrapRaw();
+
     final results = await Future.wait<Object?>([
       _api.p2pStatus(agentBaseUrl),
       _api.runtimeState(agentBaseUrl),
@@ -368,6 +399,23 @@ class AppController extends ChangeNotifier {
     }
 
     await _refreshThreadDetail();
+    _rememberCurrentHost();
+    await _persistSettings();
+  }
+
+  Future<void> _refreshBootstrapRaw() async {
+    final raw = await _api.bootstrap(agentBaseUrl);
+    bootstrap = BootstrapStatusView.fromMap(raw);
+
+    if (bootstrap.agentBaseUrl.isNotEmpty) {
+      agentBaseUrl = bootstrap.agentBaseUrl;
+    }
+    if (bootstrap.signalingBaseUrl.isNotEmpty) {
+      signalingBaseUrl = bootstrap.signalingBaseUrl;
+    }
+    if (currentThreadId.isEmpty && bootstrap.currentThreadId.isNotEmpty) {
+      currentThreadId = bootstrap.currentThreadId;
+    }
   }
 
   Future<void> _refreshThreadDetail() async {
@@ -698,6 +746,63 @@ class AppController extends ChangeNotifier {
     }).toList();
   }
 
+  Future<void> _restoreSettings() async {
+    final snapshot = await _settingsStore.load();
+    if (snapshot.agentBaseUrl.trim().isNotEmpty) {
+      agentBaseUrl = snapshot.agentBaseUrl.trim();
+    }
+    if (snapshot.signalingBaseUrl.trim().isNotEmpty) {
+      signalingBaseUrl = snapshot.signalingBaseUrl.trim();
+    }
+    _recentHosts
+      ..clear()
+      ..addAll(_sortedRecentHosts(snapshot.recentHosts));
+    notifyListeners();
+  }
+
+  Future<void> _persistSettings() {
+    return _settingsStore.save(
+      AppSettingsSnapshot(
+        agentBaseUrl: agentBaseUrl.trim(),
+        signalingBaseUrl: signalingBaseUrl.trim(),
+        recentHosts: _sortedRecentHosts(_recentHosts),
+      ),
+    );
+  }
+
+  void _rememberCurrentHost() {
+    final normalizedAgent = agentBaseUrl.trim();
+    if (normalizedAgent.isEmpty) {
+      return;
+    }
+
+    final entry = SavedHostEntry(
+      agentBaseUrl: normalizedAgent,
+      signalingBaseUrl: signalingBaseUrl.trim(),
+      lastUsedAtMillis: DateTime.now().millisecondsSinceEpoch,
+    );
+
+    _recentHosts
+      ..removeWhere((item) => item.agentBaseUrl == entry.agentBaseUrl)
+      ..insert(0, entry);
+
+    final sorted = _sortedRecentHosts(_recentHosts);
+    _recentHosts
+      ..clear()
+      ..addAll(sorted);
+  }
+
+  List<SavedHostEntry> _sortedRecentHosts(Iterable<SavedHostEntry> hosts) {
+    final items = hosts
+        .where((item) => item.agentBaseUrl.trim().isNotEmpty)
+        .toList()
+      ..sort((a, b) => b.lastUsedAtMillis.compareTo(a.lastUsedAtMillis));
+    if (items.length > 5) {
+      return items.sublist(0, 5);
+    }
+    return items;
+  }
+
   Map<String, dynamic> _buildEnvelope({
     String? sid,
     required String type,
@@ -965,6 +1070,102 @@ class AdapterRuntimeView {
           ? notesRaw.map((item) => item.toString()).toList()
           : const [],
     );
+  }
+}
+
+class BootstrapStatusView {
+  const BootstrapStatusView({
+    this.agentBaseUrl = '',
+    this.signalingBaseUrl = '',
+    this.workspaceRoot = '',
+    this.currentThreadId = '',
+    this.adapter = const BootstrapAdapterView(),
+    this.recentThreads = const [],
+  });
+
+  final String agentBaseUrl;
+  final String signalingBaseUrl;
+  final String workspaceRoot;
+  final String currentThreadId;
+  final BootstrapAdapterView adapter;
+  final List<BootstrapThreadView> recentThreads;
+
+  factory BootstrapStatusView.fromMap(Map<String, dynamic> map) {
+    final adapterRaw = map['adapter'];
+    final recentThreadsRaw = map['recentThreads'];
+    return BootstrapStatusView(
+      agentBaseUrl: map['agentBaseUrl']?.toString() ?? '',
+      signalingBaseUrl: map['signalingBaseUrl']?.toString() ?? '',
+      workspaceRoot: map['workspaceRoot']?.toString() ?? '',
+      currentThreadId: map['currentThreadId']?.toString() ?? '',
+      adapter: adapterRaw is Map
+          ? BootstrapAdapterView.fromMap(Map<String, dynamic>.from(adapterRaw))
+          : const BootstrapAdapterView(),
+      recentThreads: recentThreadsRaw is List
+          ? recentThreadsRaw
+                .whereType<Map>()
+                .map((item) => BootstrapThreadView.fromMap(Map<String, dynamic>.from(item)))
+                .toList()
+          : const [],
+    );
+  }
+}
+
+class BootstrapAdapterView {
+  const BootstrapAdapterView({
+    this.name = '',
+    this.mode = '',
+    this.provider = '',
+    this.ready = false,
+  });
+
+  final String name;
+  final String mode;
+  final String provider;
+  final bool ready;
+
+  factory BootstrapAdapterView.fromMap(Map<String, dynamic> map) {
+    return BootstrapAdapterView(
+      name: map['name']?.toString() ?? '',
+      mode: map['mode']?.toString() ?? '',
+      provider: map['provider']?.toString() ?? '',
+      ready: map['ready'] == true,
+    );
+  }
+}
+
+class BootstrapThreadView {
+  const BootstrapThreadView({
+    required this.id,
+    required this.title,
+    required this.updatedAtMillis,
+    required this.current,
+  });
+
+  final String id;
+  final String title;
+  final int updatedAtMillis;
+  final bool current;
+
+  factory BootstrapThreadView.fromMap(Map<String, dynamic> map) {
+    return BootstrapThreadView(
+      id: map['id']?.toString() ?? '',
+      title: map['title']?.toString() ?? '',
+      updatedAtMillis: map['updatedAt'] is num
+          ? (map['updatedAt'] as num).toInt()
+          : int.tryParse(map['updatedAt']?.toString() ?? '') ?? 0,
+      current: map['current'] == true,
+    );
+  }
+
+  String get updatedAtLabel {
+    if (updatedAtMillis <= 0) {
+      return '-';
+    }
+    final dt = DateTime.fromMillisecondsSinceEpoch(updatedAtMillis);
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '$hh:$mm';
   }
 }
 

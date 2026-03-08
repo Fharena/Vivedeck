@@ -25,6 +25,30 @@ class FakeMetricsAgentApi extends AgentApi {
   FakeMetricsAgentApi();
 
   @override
+  Future<Map<String, dynamic>> bootstrap(String baseUrl) async {
+    return {
+      'agentBaseUrl': 'http://192.168.0.24:8080',
+      'signalingBaseUrl': 'http://192.168.0.24:8081',
+      'workspaceRoot': 'C:/demo/workspace',
+      'currentThreadId': 'thread-metrics-1',
+      'adapter': {
+        'name': 'cursor-agent-cli',
+        'mode': 'cursor_agent_cli',
+        'provider': 'cursor',
+        'ready': true,
+      },
+      'recentThreads': [
+        {
+          'id': 'thread-metrics-1',
+          'title': 'metrics thread',
+          'updatedAt': DateTime(2026, 3, 7, 10, 5, 1).millisecondsSinceEpoch,
+          'current': true,
+        },
+      ],
+    };
+  }
+
+  @override
   Future<Map<String, dynamic>> p2pStatus(String baseUrl) async {
     return {
       'active': true,

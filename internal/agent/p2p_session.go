@@ -95,6 +95,10 @@ func (m *P2PSessionManager) SetControlMetrics(metrics *ControlMetrics) {
 	m.controlMetrics = metrics
 }
 
+func (m *P2PSessionManager) DefaultSignalingBaseURL() string {
+	return strings.TrimSpace(m.defaultSignalingBaseURL)
+}
+
 func (m *P2PSessionManager) Start(ctx context.Context, req StartP2PRequest) (P2PSessionStatus, error) {
 	m.mu.Lock()
 	if m.active != nil {

@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'screens/prompt_screen.dart';
 import 'screens/review_screen.dart';
 import 'screens/status_screen.dart';
+import 'services/app_settings_store.dart';
 import 'state/app_controller.dart';
 
 class VibeDeckApp extends StatelessWidget {
@@ -75,9 +78,9 @@ class _MobileShellState extends State<MobileShell> {
   @override
   void initState() {
     super.initState();
-    _controller = widget.controller ?? AppController();
+    _controller = widget.controller ?? AppController(settingsStore: FileAppSettingsStore());
     _ownsController = widget.controller == null;
-    _controller.refreshStatus();
+    unawaited(_controller.initialize());
   }
 
   @override

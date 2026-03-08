@@ -156,14 +156,16 @@
 - bootstrap smoke(`npm --prefix extensions/vibedeck-bridge run smoke:bootstrap`)
 - patch files를 thread event에 저장해 모바일/IDE가 thread detail만으로 review 상태 복원 가능
 - shared thread history 디스크 영속화(THREAD_STORE_FILE, 기본 %APPDATA%\\VibeDeck\\thread-store.json)
+- 모바일 bootstrap 자동 세팅 v1 (`GET /v1/agent/bootstrap`, agent/signaling/workspace/current thread/recent threads 자동 조회, 최근 host 기억)
 
 ## 다음 작업 우선순위
 
-1. 모바일 앱 bootstrap(QR/discovery/최근 세션)으로 자동 세팅 축소
-2. Cursor 외 provider(Codex/Claude Code/Antigravity) 확장용 adapter mode 정리
-3. Windows smoke cleanup/agent 잠금 이슈 정리
-4. control timeout budget 운영 설정 외부화
-5. 설치 산출물 버전 관리/릴리스 자동화
+1. 모바일 앱 bootstrap v2(QR/discovery/최근 세션)로 자동 세팅 추가 축소
+2. Cursor 세션 복원/로그 가시성 고도화
+3. Cursor 외 provider(Codex/Claude Code/Antigravity) 확장용 adapter mode 정리
+4. Windows smoke cleanup/agent 잠금 이슈 정리
+5. control timeout budget 운영 설정 외부화
+6. 설치 산출물 버전 관리/릴리스 자동화
 
 ## 커밋 전략
 

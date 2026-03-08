@@ -115,6 +115,24 @@ void main() {
 class FakeAgentApi extends AgentApi {
   FakeAgentApi(this.threadStore);
 
+  @override
+  Future<Map<String, dynamic>> bootstrap(String baseUrl) async {
+    final threads = threadStore.listThreads();
+    return {
+      'agentBaseUrl': 'http://127.0.0.1:8080',
+      'signalingBaseUrl': 'http://127.0.0.1:8081',
+      'workspaceRoot': 'C:/vibedeck-demo/workspace',
+      'currentThreadId': threads.isEmpty ? '' : threads.first['id']?.toString() ?? '',
+      'adapter': {
+        'name': 'cursor-agent-cli',
+        'mode': 'cursor_agent_cli',
+        'provider': 'cursor',
+        'ready': true,
+      },
+      'recentThreads': threads.map((thread) => {...Map<String, dynamic>.from(thread), 'current': true}).toList(),
+    };
+  }
+
   final FakeThreadStore threadStore;
   final List<Map<String, dynamic>> sentEnvelopes = [];
 

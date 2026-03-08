@@ -20,6 +20,23 @@ void main() {
 
 class _FakeShellAgentApi extends AgentApi {
   @override
+  Future<Map<String, dynamic>> bootstrap(String baseUrl) async {
+    return {
+      'agentBaseUrl': 'http://127.0.0.1:8080',
+      'signalingBaseUrl': 'http://127.0.0.1:8081',
+      'workspaceRoot': 'C:/demo/workspace',
+      'currentThreadId': '',
+      'adapter': {
+        'name': 'mock-cursor',
+        'mode': 'mock',
+        'provider': 'cursor',
+        'ready': true,
+      },
+      'recentThreads': const [],
+    };
+  }
+
+  @override
   Future<Map<String, dynamic>> p2pStatus(String baseUrl) async {
     return {
       'active': false,
