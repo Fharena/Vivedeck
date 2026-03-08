@@ -568,6 +568,20 @@ class FakeThreadStore {
         data: {
           'summary': summary,
           'fileCount': 1,
+          'files': [
+            {
+              'path': 'src/auth/middleware.ts',
+              'status': 'modified',
+              'hunks': [
+                {
+                  'hunkId': 'h1',
+                  'header': '@@ -12,7 +12,9 @@',
+                  'diff': '- if (!token) throw new Error()\n+ if (!token) return res.status(401).send()',
+                  'risk': 'low',
+                },
+              ],
+            },
+          ],
         },
       ));
     _state = 'patch_ready';

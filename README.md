@@ -60,7 +60,8 @@ docs/
 ## 현재 실사용 범위
 
 - 모바일 앱과 agent가 같은 스레드 히스토리를 공유
-- `PROMPT_SUBMIT -> PATCH_READY -> PATCH_APPLY -> RUN_PROFILE` 흐름을 모바일에서 확인/승인 가능
+- Cursor extension 안에서 shared thread panel을 열어 같은 스레드/패치/실행 결과를 확인하고 프롬프트/적용/실행까지 제어 가능
+- `PROMPT_SUBMIT -> PATCH_READY -> PATCH_APPLY -> RUN_PROFILE` 흐름을 모바일과 IDE 양쪽에서 확인/승인 가능
 - 실행 프로파일 목록은 agent가 동적으로 제공
 - 실행 결과는 status/summary/top errors뿐 아니라 전체 출력까지 모바일 검토 화면에 표시
 - Cursor는 첫 번째 provider이며, 장기적으로는 다른 AI IDE provider도 같은 `WorkspaceAdapter` 계약에 맞춰 붙이는 구조를 목표로 함
@@ -209,6 +210,7 @@ npm --prefix extensions/vibedeck-bridge run build
 5. `.env.local` 같은 ignored 파일이 temp worktree snapshot에 필요하면 `vibedeckBridge.cursorAgent.syncIgnoredPaths=[".env.local"]`처럼 명시 allowlist로만 추가
 6. `VibeDeck: Validate Commands`로 command registry readiness 확인
 7. `VibeDeck: Copy Agent Env`로 bridge 주소를 복사해 agent 실행 터미널에 붙여 넣기
+8. `VibeDeck: Open Shared Threads`로 IDE 안에서 shared thread panel 열기
 
 ```powershell
 $env:CURSOR_BRIDGE_TCP_ADDR = "127.0.0.1:7797"
@@ -231,6 +233,7 @@ npm --prefix extensions/vibedeck-bridge run smoke:extension
 
 - `smoke:provider`는 built-in provider와 command bridge의 low-level 경로를 검증합니다.
 - `smoke:extension`은 `extension.ts -> bridgeExtensionController -> built-in provider -> TCP bridge` 활성화 경로를 검증합니다.
+- `smoke:panel`은 `openThreadPanel -> agent HTTP -> shared thread refresh/action` 경로를 검증합니다.
 - `VibeDeck: Copy Smoke Command`는 mock mode에서는 `extension_host_smoke.ps1`, built-in command mode에서는 `npm --prefix extensions/vibedeck-bridge run smoke:extension` 명령을 복사합니다.
 
 실제 GUI extension host + built-in provider smoke는 아래 스크립트로 검증합니다.
@@ -246,7 +249,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\gui_extension_host_smoke.ps1 
 - `smoke:extension`으로 저장소 안의 activation path를 자동 검증하고, `gui_extension_host_smoke.ps1`로 실제 Cursor GUI extension host + real `cursor-agent` 경로까지 검증했습니다.
 - built-in provider와 Go `cursor_agent_cli` adapter는 둘 다 ignored 파일을 기본 비동기화로 두고, 명시 allowlist와 일치하는 항목만 temp worktree snapshot에 복사합니다.
 - 외부 대시보드용 Prometheus scrape endpoint(`/metrics`)와 control handler latency/timeout 메트릭을 제공합니다.
-- 현재 남은 큰 과제는 IDE shared thread panel, bridge/agent 자동 부트스트랩, Windows cleanup warning 정리, timeout budget 운영 설정 외부화, 설치 산출물 릴리스 자동화입니다.
+- 현재 남은 큰 과제는 bridge/agent 자동 부트스트랩, Cursor 외 provider 확장, Windows cleanup warning 정리, timeout budget 운영 설정 외부화, 설치 산출물 릴리스 자동화입니다.
 - Windows에서는 smoke 종료 직후 `agent.exe` 잠금 때문에 temp root cleanup warning이 남을 수 있습니다.
 
 ### VSIX 패키징

@@ -551,8 +551,11 @@ class AppController extends ChangeNotifier {
       if (event.kind == 'prompt_submitted' && event.body.isNotEmpty) {
         promptDraft = event.body;
       }
-      if (event.kind == 'patch_ready' && event.body.isNotEmpty) {
-        patchSummary = event.body;
+      if (event.kind == 'patch_ready') {
+        patchSummary = event.data['summary']?.toString() ?? event.body;
+        _patchFiles
+          ..clear()
+          ..addAll(_parsePatchFiles(event.data['files']));
       }
       if (event.kind == 'patch_applied') {
         patchResultStatus = event.data['status']?.toString() ?? patchResultStatus;

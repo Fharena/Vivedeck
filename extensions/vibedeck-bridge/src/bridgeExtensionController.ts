@@ -16,6 +16,11 @@ import {
   createCursorAgentCommandAdapter,
   type CursorAgentCommandAdapterConfig,
 } from "./cursorAgentCommandAdapter.js";
+import {
+  createThreadPanelController,
+  type ThreadPanelController,
+  type ThreadPanelWebviewPanelLike,
+} from "./threadPanelController.js";
 
 type BridgeMode = "command" | "mock";
 type CommandProviderMode = "builtin_cursor_agent" | "external";
@@ -67,6 +72,12 @@ export interface BridgeExtensionWindowLike {
   showWarningMessage(message: string): unknown;
   showErrorMessage(message: string): unknown;
   createStatusBarItem(alignment: number, priority?: number): BridgeExtensionStatusBarItemLike;
+  createWebviewPanel(
+    viewType: string,
+    title: string,
+    column: number,
+    options: { enableScripts: boolean; retainContextWhenHidden?: boolean },
+  ): ThreadPanelWebviewPanelLike;
 }
 
 export interface BridgeExtensionWorkspaceFolderLike {
@@ -98,6 +109,9 @@ export interface BridgeExtensionVscodeLike {
   env: BridgeExtensionEnvLike;
   statusBarAlignment: {
     left: number;
+  };
+  viewColumn: {
+    one: number;
   };
 }
 
@@ -148,12 +162,14 @@ export function createBridgeExtensionController(
 
 class DefaultBridgeExtensionController implements BridgeExtensionController {
   private readonly vscode: BridgeExtensionVscodeLike;
+  private readonly threadPanel: ThreadPanelController;
   private activeBridge: ActiveBridge | undefined;
   private statusBarItem: BridgeExtensionStatusBarItemLike | undefined;
   private lastBridgeError: string | undefined;
 
   constructor(vscodeLike: BridgeExtensionVscodeLike) {
     this.vscode = vscodeLike;
+    this.threadPanel = createThreadPanelController(this.vscode);
   }
 
   async activate(context: BridgeExtensionContextLike): Promise<void> {
@@ -195,11 +211,17 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
       }),
     );
     context.subscriptions.push(
+      this.vscode.commands.registerCommand("vibedeckBridge.openThreadPanel", async () => {
+        await this.threadPanel.openOrReveal();
+      }),
+    );
+    context.subscriptions.push(
       this.vscode.workspace.onDidChangeConfiguration((event) => {
         if (!event.affectsConfiguration("vibedeckBridge")) {
           return;
         }
         void this.restartServer();
+        void this.threadPanel.refreshIfOpen();
       }),
     );
 
@@ -211,6 +233,7 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
   }
 
   async deactivate(): Promise<void> {
+    this.threadPanel.dispose();
     await this.stopServer(false);
   }
 

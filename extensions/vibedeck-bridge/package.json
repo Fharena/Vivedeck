@@ -20,7 +20,8 @@
     "onCommand:vibedeckBridge.showStatus",
     "onCommand:vibedeckBridge.validateCommands",
     "onCommand:vibedeckBridge.copyAgentEnv",
-    "onCommand:vibedeckBridge.copySmokeCommand"
+    "onCommand:vibedeckBridge.copySmokeCommand",
+    "onCommand:vibedeckBridge.openThreadPanel"
   ],
   "contributes": {
     "commands": [
@@ -47,6 +48,10 @@
       {
         "command": "vibedeckBridge.copySmokeCommand",
         "title": "VibeDeck: Copy Smoke Command"
+      },
+      {
+        "command": "vibedeckBridge.openThreadPanel",
+        "title": "VibeDeck: Open Shared Threads"
       }
     ],
     "configuration": {
@@ -202,6 +207,17 @@
           "default": 300000,
           "minimum": 1000,
           "description": "builtin cursor-agent provider의 run profile timeout(ms)입니다."
+        },
+        "vibedeckBridge.agentBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8080",
+          "description": "Agent HTTP base URL used by the shared thread panel."
+        },
+        "vibedeckBridge.panelAutoRefreshMs": {
+          "type": "number",
+          "default": 4000,
+          "minimum": 1000,
+          "description": "Auto-refresh interval for the shared thread panel in milliseconds."
         }
       }
     }
@@ -211,7 +227,8 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "smoke:provider": "npm run build && node ./scripts/command_provider_smoke.mjs",
     "smoke:extension": "npm run build && node ./scripts/extension_runtime_smoke.mjs",
-    "package:vsix": "npm run build && node ./scripts/package_vsix.mjs"
+    "package:vsix": "npm run build && node ./scripts/package_vsix.mjs",
+    "smoke:panel": "npm run build && node ./scripts/thread_panel_smoke.mjs"
   },
   "dependencies": {
     "@vibedeck/cursor-bridge": "file:../../adapters/cursor-bridge"

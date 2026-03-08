@@ -151,6 +151,7 @@ func (o *Orchestrator) handlePromptSubmit(ctx context.Context, env protocol.Enve
 			"jobId":     jobID,
 			"summary":   patch.Summary,
 			"fileCount": len(patch.Files),
+			"files":     patch.Files,
 		},
 	})
 

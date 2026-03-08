@@ -222,6 +222,13 @@ func TestHTTPServerRunProfilesAndThreadsEndpoints(t *testing.T) {
 	if detail.Thread.CurrentJobID == "" {
 		t.Fatalf("expected current job id to be set")
 	}
+	if detail.Events[2].Kind != "patch_ready" {
+		t.Fatalf("expected third event to be patch_ready, got %+v", detail.Events[2])
+	}
+	filesRaw, ok := detail.Events[2].Data["files"].([]any)
+	if !ok || len(filesRaw) == 0 {
+		t.Fatalf("expected patch_ready event to include files, got %+v", detail.Events[2].Data)
+	}
 }
 
 func TestHTTPServerInboundCmdAckClearsPending(t *testing.T) {
