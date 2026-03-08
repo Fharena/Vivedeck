@@ -1,0 +1,12 @@
+src/**
+scripts/**
+tsconfig.json
+package-lock.json
+node_modules/**
+!node_modules/@vibedeck/
+node_modules/@vibedeck/**
+!node_modules/@vibedeck/cursor-bridge/
+node_modules/@vibedeck/cursor-bridge/**
+!node_modules/@vibedeck/cursor-bridge/dist/**
+!node_modules/@vibedeck/cursor-bridge/package.json
+!node_modules/@vibedeck/cursor-bridge/README.md

@@ -21,6 +21,33 @@ powershell -ExecutionPolicy Bypass -File .\scripts\extension_host_smoke.ps1 -Bri
 이 스크립트는 bridge preflight 후 agent를 띄워 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` 전체 흐름을 검증합니다.
 Windows에서는 종료 직후 `agent.exe` 잠금으로 temp root cleanup warning이 남을 수 있습니다.
 
+## VSIX 패키징/설치
+
+로컬 설치용 `.vsix`는 루트 스크립트로 만드는 편이 가장 안전합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\package_vibedeck_bridge.ps1 -InstallDependencies
+```
+
+직접 extension 폴더에서 패키징하려면:
+
+```powershell
+npm install
+npm run package:vsix -- --out ..\..\artifacts\vsix\vibedeck-bridge-0.1.0.vsix
+```
+
+설치 예시:
+
+```powershell
+cursor --install-extension .\artifacts\vsix\vibedeck-bridge-0.1.0.vsix --force
+```
+
+패키징 전 빠른 점검:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\vibedeck_doctor.ps1
+```
+
 ## command mode
 
 기본값은 `vibedeckBridge.commandProvider=builtin_cursor_agent` 입니다.

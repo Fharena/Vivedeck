@@ -210,7 +210,8 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "smoke:provider": "npm run build && node ./scripts/command_provider_smoke.mjs",
-    "smoke:extension": "npm run build && node ./scripts/extension_runtime_smoke.mjs"
+    "smoke:extension": "npm run build && node ./scripts/extension_runtime_smoke.mjs",
+    "package:vsix": "npm run build && node ./scripts/package_vsix.mjs"
   },
   "dependencies": {
     "@vibedeck/cursor-bridge": "file:../../adapters/cursor-bridge"
@@ -218,6 +219,16 @@
   "devDependencies": {
     "@types/node": "^24.3.0",
     "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "^3.7.1",
     "typescript": "^5.9.3"
+  },
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fharena/Vivedeck.git"
+  },
+  "homepage": "https://github.com/Fharena/Vivedeck",
+  "bugs": {
+    "url": "https://github.com/Fharena/Vivedeck/issues"
   }
 }

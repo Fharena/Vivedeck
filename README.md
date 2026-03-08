@@ -67,6 +67,22 @@ docs/
 - Cursor 또는 VS Code(실제 extension host bridge를 확인할 때)
 - Cursor CLI (cursor-agent, 실제 AI patch 생성을 확인할 때, optional)
 
+### 5분 점검
+
+환경이 맞는지 먼저 확인하려면 아래 명령을 실행합니다.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\vibedeck_doctor.ps1
+```
+
+doctor는 `git/go/node/npm/flutter/editor CLI/cursor-agent/build 산출물/vsce`를 점검하고, 현재 PC에서 가능한 실행 프로필을 바로 보여줍니다.
+
+### 10분 온보딩
+
+실사용 설치 절차는 별도 문서로 정리했습니다.
+
+- 온보딩 가이드: [docs/onboarding.md](./docs/onboarding.md)
+
 ### 빠른 실행
 
 기본값은 fixture child-process bridge입니다.
@@ -216,12 +232,33 @@ powershell -ExecutionPolicy Bypass -File .\scripts\gui_extension_host_smoke.ps1 
 - `smoke:extension`으로 저장소 안의 activation path를 자동 검증하고, `gui_extension_host_smoke.ps1`로 실제 Cursor GUI extension host + real `cursor-agent` 경로까지 검증했습니다.
 - built-in provider와 Go `cursor_agent_cli` adapter는 둘 다 ignored 파일을 기본 비동기화로 두고, 명시 allowlist와 일치하는 항목만 temp worktree snapshot에 복사합니다.
 - 외부 대시보드용 Prometheus scrape endpoint(`/metrics`)와 control handler latency/timeout 메트릭을 제공합니다.
-- 현재 남은 큰 과제는 패키징/온보딩, Windows cleanup warning 정리, timeout budget 운영 설정 외부화입니다.
+- 현재 남은 큰 과제는 Windows cleanup warning 정리, timeout budget 운영 설정 외부화, 설치 산출물 릴리스 자동화입니다.
 - Windows에서는 smoke 종료 직후 `agent.exe` 잠금 때문에 temp root cleanup warning이 남을 수 있습니다.
 
+### VSIX 패키징
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\package_vibedeck_bridge.ps1 -InstallDependencies
+```
+
+이 스크립트는 packaging 전용 temp staging 디렉터리에서 runtime 파일만 묶어서 VSIX를 생성합니다.`n`n기본 산출물 경로:
+
+- `artifacts\vsix\vibedeck-bridge-<version>.vsix`
+
+추가 옵션:
+
+- `-RunSmoke`: package 전 `smoke:provider`, `smoke:extension` 같이 실행
+- `-SkipCheck`: `npm run check` 생략
+
+생성 후 설치 예시:
+
+```powershell
+cursor --install-extension .\artifacts\vsix\vibedeck-bridge-0.1.0.vsix --force
+```
 ## 문서
 
 - 구현 계획: [docs/implementation-plan.md](./docs/implementation-plan.md)
 - 아키텍처: [docs/architecture.md](./docs/architecture.md)
 - 크리티컬 이슈 로그: [docs/critical-issues.md](./docs/critical-issues.md)
 - 해결 학습 가이드: [docs/troubleshooting-study.md](./docs/troubleshooting-study.md)
+- 온보딩 가이드: [docs/onboarding.md](./docs/onboarding.md)

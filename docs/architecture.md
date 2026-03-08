@@ -70,6 +70,8 @@ TypeScript 브리지 패키지 구성:
 - `scripts/cursor_agent_smoke.ps1`는 temp repo를 만들고 `PROMPT_SUBMIT -> PATCH_APPLY -> RUN_PROFILE` smoke를 자동 수행합니다. 현재 Windows + WSL + login 완료 환경에서 실제 smoke proof를 확보했습니다.
 - `scripts/extension_host_smoke.ps1`는 이미 떠 있는 extension host TCP bridge에 대해 bridge preflight 후 agent mock smoke를 수행합니다.
 - `scripts/gui_extension_host_smoke.ps1`는 실제 Cursor GUI extension host를 dev extension 모드로 띄우고, built-in cursor-agent provider 경로를 end-to-end로 검증합니다.
+- `scripts/vibedeck_doctor.ps1`는 로컬 요구사항, build 산출물, VSIX 패키징 가능 여부를 점검해 현재 PC에서 가능한 실행 프로필을 요약합니다.
+- `scripts/package_vibedeck_bridge.ps1`는 adapter/extension build와 optional smoke 뒤에 temp staging 디렉터리에서 `extensions/vibedeck-bridge`를 `.vsix`로 패키징합니다.
 - `npm --prefix extensions/vibedeck-bridge run smoke:provider`는 fake cursor-agent를 사용해 built-in command provider와 command bridge 경로를 결정적으로 검증합니다. ignored allowlist에 포함한 파일이 snapshot에 반영되는지도 함께 확인합니다.
 - `npm --prefix extensions/vibedeck-bridge run smoke:extension`는 fake VS Code host + fake cursor-agent를 사용해 `extension.ts -> controller -> TCP bridge -> JSON-RPC` 활성화 경로를 검증합니다. extension 설정의 `vibedeckBridge.cursorAgent.syncIgnoredPaths`도 이 smoke에서 같이 검증합니다.
 

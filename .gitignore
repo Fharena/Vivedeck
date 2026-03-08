@@ -1,4 +1,4 @@
-﻿# Build outputs
+# Build outputs
 bin/
 out/
 coverage/
@@ -11,6 +11,7 @@ coverage/
 # Node
 node_modules/
 dist/
+artifacts/
 
 # IDE
 .vscode/
