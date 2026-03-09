@@ -3,10 +3,11 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class AgentApiException implements Exception {
-  AgentApiException(this.statusCode, this.message);
+  AgentApiException(this.statusCode, this.message, {this.responseBody});
 
   final int statusCode;
   final String message;
+  final Map<String, dynamic>? responseBody;
 
   @override
   String toString() => 'AgentApiException($statusCode): $message';
@@ -176,7 +177,11 @@ class AgentApi {
       final message = decoded is Map<String, dynamic>
           ? (decoded['error']?.toString() ?? decoded.toString())
           : decoded.toString();
-      throw AgentApiException(response.statusCode, message);
+      throw AgentApiException(
+        response.statusCode,
+        message,
+        responseBody: decoded is Map<String, dynamic> ? decoded : null,
+      );
     }
 
     if (decoded is Map<String, dynamic>) {
