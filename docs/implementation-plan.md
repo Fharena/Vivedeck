@@ -152,6 +152,7 @@
 - 모바일 상태 화면의 workspace adapter/runtime 정보 표시
 - Cursor extension shared thread panel(`vibedeckBridge.openThreadPanel`)
 - extension panel smoke(`npm --prefix extensions/vibedeck-bridge run smoke:panel`)
+- Cursor shared thread panel의 apply 비활성화 사유, current job 파일 목록, HTTP 400 `CMD_ACK false` 사유 복구 표시
 - extension local agent 자동 부트스트랩(`vibedeckBridge.agent.*`, `VibeDeck: Start/Stop/Restart Local Agent`)
 - bootstrap smoke(`npm --prefix extensions/vibedeck-bridge run smoke:bootstrap`)
 - patch files를 thread event에 저장해 모바일/IDE가 thread detail만으로 review 상태 복원 가능

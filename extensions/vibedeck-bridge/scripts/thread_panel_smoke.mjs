@@ -114,9 +114,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (body.type === "PATCH_APPLY") {
       const detail = state.details.get("thread_panel_smoke");
-      detail.thread.state = "success";
+      detail.thread.state = "failed";
       detail.thread.lastEventKind = "patch_applied";
-      detail.thread.lastEventText = "패치 적용 완료";
+      detail.thread.lastEventText = "패치 적용 실패";
       detail.thread.updatedAt = Date.now();
       detail.events.push({
         id: "evt_apply",
@@ -125,12 +125,18 @@ const server = http.createServer(async (req, res) => {
         kind: "patch_applied",
         role: "system",
         title: "패치 적용 결과",
-        body: "패치 적용 완료",
-        data: { status: "success", message: "패치 적용 완료" },
+        body: "patch apply blocked for smoke",
+        data: { status: "failed", message: "patch apply blocked for smoke" },
         at: Date.now(),
       });
       state.threads = [detail.thread];
-      return json(res, 200, { responses: [{ type: "PATCH_RESULT", payload: { status: "success" } }] });
+      return json(res, 400, {
+        error: "patch apply blocked for smoke",
+        responses: [
+          { type: "CMD_ACK", payload: { accepted: false, message: "patch apply blocked for smoke" } },
+          { type: "PATCH_RESULT", payload: { status: "failed", message: "patch apply blocked for smoke" } },
+        ],
+      });
     }
     if (body.type === "RUN_PROFILE") {
       const detail = state.details.get("thread_panel_smoke");
@@ -151,6 +157,7 @@ const server = http.createServer(async (req, res) => {
           status: "passed",
           summary: "smoke profile passed",
           output: "base\nsmoke-panel\n",
+          changedFiles: ["notes.txt"],
           topErrors: [
             {
               message: "synthetic warning",
@@ -296,7 +303,11 @@ try {
   await waitFor(() => (panelMessages.at(-1)?.state?.currentJobId || "") === "job_panel_smoke");
 
   await panelMessageHandler({ type: "apply-patch" });
-  await waitFor(() => state.envelopes.some((item) => item.type === "PATCH_APPLY"));
+  await waitFor(() => (panelMessages.at(-1)?.state?.derived?.patchResultStatus || "") === "failed");
+  const failedApplyState = panelMessages.at(-1).state;
+  assert.equal(failedApplyState.errorMessage, "patch apply blocked for smoke");
+  assert.equal(failedApplyState.derived.patchResultStatus, "failed");
+
   await panelMessageHandler({ type: "run-profile", profileId: "smoke" });
   await waitFor(() => (panelMessages.at(-1)?.state?.derived?.runStatus || "") === "passed");
   await panelMessageHandler({
@@ -312,6 +323,7 @@ try {
   assert.equal(latestStateMessage.state.currentThread.id, "thread_panel_smoke");
   assert.equal(latestStateMessage.state.derived.runStatus, "passed");
   assert.equal(latestStateMessage.state.derived.patchFiles[0].path, "notes.txt");
+  assert.deepEqual(latestStateMessage.state.derived.currentJobFiles, ["notes.txt"]);
   assert.equal(state.envelopes.map((item) => item.type).join(","), "PROMPT_SUBMIT,PATCH_APPLY,RUN_PROFILE,OPEN_LOCATION");
   assert.equal(state.openLocations.length, 1);
 
