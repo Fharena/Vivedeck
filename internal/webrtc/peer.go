@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Fharena/Vivedeck/internal/protocol"
+	"github.com/Fharena/VibeDeck/internal/protocol"
 	pion "github.com/pion/webrtc/v4"
 )
 

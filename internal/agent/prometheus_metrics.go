@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Fharena/Vivedeck/internal/runtime"
+	"github.com/Fharena/VibeDeck/internal/runtime"
 )
 
 func renderPrometheusMetrics(state runtime.ConnectionState, p2pActive bool, ack runtime.AckMetrics, control ControlMetricsSnapshot) string {

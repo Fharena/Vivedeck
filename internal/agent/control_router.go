@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/Fharena/Vivedeck/internal/protocol"
-	"github.com/Fharena/Vivedeck/internal/runtime"
+	"github.com/Fharena/VibeDeck/internal/protocol"
+	"github.com/Fharena/VibeDeck/internal/runtime"
 )
 
 type ControlHandleResult struct {

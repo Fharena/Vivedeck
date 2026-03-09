@@ -6,7 +6,7 @@ import (
     "os"
     "strconv"
 
-    "github.com/Fharena/Vivedeck/internal/relay"
+    "github.com/Fharena/VibeDeck/internal/relay"
 )
 
 func main() {

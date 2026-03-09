@@ -356,10 +356,10 @@
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Fharena/Vivedeck.git"
+    "url": "https://github.com/Fharena/VibeDeck.git"
   },
-  "homepage": "https://github.com/Fharena/Vivedeck",
+  "homepage": "https://github.com/Fharena/VibeDeck",
   "bugs": {
-    "url": "https://github.com/Fharena/Vivedeck/issues"
+    "url": "https://github.com/Fharena/VibeDeck/issues"
   }
 }

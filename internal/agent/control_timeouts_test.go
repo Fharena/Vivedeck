@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Fharena/Vivedeck/internal/protocol"
+	"github.com/Fharena/VibeDeck/internal/protocol"
 )
 
 func TestControlEnvelopeTimeout(t *testing.T) {

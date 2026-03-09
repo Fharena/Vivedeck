@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Fharena/Vivedeck/internal/agent"
-	"github.com/Fharena/Vivedeck/internal/runtime"
+	"github.com/Fharena/VibeDeck/internal/agent"
+	"github.com/Fharena/VibeDeck/internal/runtime"
 )
 
 func main() {

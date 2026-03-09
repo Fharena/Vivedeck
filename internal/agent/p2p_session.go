@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Fharena/Vivedeck/internal/protocol"
-	"github.com/Fharena/Vivedeck/internal/runtime"
-	"github.com/Fharena/Vivedeck/internal/webrtc"
+	"github.com/Fharena/VibeDeck/internal/protocol"
+	"github.com/Fharena/VibeDeck/internal/runtime"
+	"github.com/Fharena/VibeDeck/internal/webrtc"
 	"github.com/gorilla/websocket"
 )
 

@@ -3,7 +3,7 @@ package session
 import (
     "sync"
 
-    "github.com/Fharena/Vivedeck/internal/protocol"
+    "github.com/Fharena/VibeDeck/internal/protocol"
 )
 
 type Session struct {
