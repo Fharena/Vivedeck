@@ -68,12 +68,13 @@ docs/
 - 모바일 상태 화면이 `GET /v1/agent/bootstrap`로 agent/signaling/workspace/current thread/recent threads를 자동 조회해 기본 연결값을 채움
 - Cursor extension이 `VibeDeck: Open Mobile Bootstrap` / `VibeDeck: Copy Mobile Bootstrap Link`로 LAN 기준 QR/deep link(`vibedeck://bootstrap`)를 제공
 - 모바일 앱이 deep link를 수신하면 agent/signaling/thread를 즉시 적용하고, 최근 연결 host도 함께 기억함
+- 모바일 상태 화면이 UDP LAN discovery(:42777)로 같은 Wi-Fi의 VibeDeck host를 찾아 agent/signaling/thread/workspace를 자동 적용할 수 있음
 
 ## 세팅 방향
 
-- 모바일 앱은 `GET /v1/agent/bootstrap`, 최근 host 기억, `vibedeck://bootstrap` deep link를 사용해 URL 입력을 거의 제거하는 방향으로 유지
+- 모바일 앱은 `GET /v1/agent/bootstrap`, 최근 host 기억, `vibedeck://bootstrap` deep link, UDP LAN discovery를 사용해 URL 입력을 거의 제거하는 방향으로 유지
 - IDE 쪽은 extension 또는 배포 가능한 패키지로 최소 세팅만 요구하는 방향으로 유지
-- 현재는 `extensions/vibedeck-bridge` VSIX, extension local agent 자동 부트스트랩, shared thread history 영속화, 모바일 bootstrap 자동 세팅 v2(QR/deep link)까지 갖춘 상태입니다. 다음 단계는 LAN discovery와 provider 다변화입니다.
+- 현재는 `extensions/vibedeck-bridge` VSIX, extension local agent 자동 부트스트랩, shared thread history 영속화, 모바일 bootstrap 자동 세팅 v3(QR/deep link + LAN discovery)까지 갖춘 상태입니다. 다음 단계는 Cursor 패널 로그/세션 가시성과 research 경로 분리입니다.
 
 ## 로컬 개발
 
@@ -192,7 +193,7 @@ shared thread history는 기본적으로 디스크에 영속화됩니다.
 
 ### 모바일 Bootstrap API
 
-모바일 앱은 `GET /v1/agent/bootstrap`를 먼저 호출해 agent/signaling/workspace/adapter/current thread/recent threads 기본값을 읽고, extension이 생성한 `vibedeck://bootstrap` deep link를 수신하면 해당 값을 바로 적용합니다.
+모바일 앱은 `GET /v1/agent/bootstrap`를 먼저 호출해 agent/signaling/workspace/adapter/current thread/recent threads 기본값을 읽고, extension이 생성한 `vibedeck://bootstrap` deep link를 수신하면 해당 값을 바로 적용합니다. 같은 Wi-Fi에 있을 때는 상태 화면의 `LAN에서 찾기`가 UDP discovery(`:42777`) probe를 보내 host가 광고한 bootstrap 값을 받아 자동 채웁니다.
 
 ```json
 {
@@ -214,6 +215,7 @@ shared thread history는 기본적으로 디스크에 영속화됩니다.
 
 - `AGENT_PUBLIC_BASE_URL`
 - `SIGNALING_PUBLIC_BASE_URL`
+- `LAN_DISCOVERY_ADDR` (`:42777` 기본값, 비우면 LAN discovery responder 비활성화)
 
 ### 운영 메트릭 Export
 

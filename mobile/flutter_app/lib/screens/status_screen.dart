@@ -67,7 +67,8 @@ class _StatusScreenState extends State<StatusScreen> {
                 ? widget.controller.directPairingCode
                 : widget.controller.pairingCode;
 
-        _syncControllerText(_agentUrlController, widget.controller.agentBaseUrl);
+        _syncControllerText(
+            _agentUrlController, widget.controller.agentBaseUrl);
         _syncControllerText(
           _signalingUrlController,
           widget.controller.signalingBaseUrl,
@@ -119,11 +120,14 @@ class _StatusScreenState extends State<StatusScreen> {
                   const SizedBox(height: 10),
                   _InfoRow(
                     label: '작업 디렉토리',
-                    value: runtime.workspaceRoot.isEmpty ? '-' : runtime.workspaceRoot,
+                    value: runtime.workspaceRoot.isEmpty
+                        ? '-'
+                        : runtime.workspaceRoot,
                   ),
                   _InfoRow(
                     label: 'binary',
-                    value: runtime.binaryPath.isEmpty ? '-' : runtime.binaryPath,
+                    value:
+                        runtime.binaryPath.isEmpty ? '-' : runtime.binaryPath,
                   ),
                   if (runtime.notes.isNotEmpty) ...[
                     const SizedBox(height: 8),
@@ -178,11 +182,22 @@ class _StatusScreenState extends State<StatusScreen> {
                           label: const Text('설정 저장 + 자동 감지'),
                         ),
                       ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: widget.controller.isLoading
+                              ? null
+                              : widget.controller.discoverLanHosts,
+                          icon: const Icon(Icons.wifi_tethering),
+                          label: const Text('LAN에서 찾기'),
+                        ),
+                      ),
                     ],
                   ),
                   if (widget.controller.recentHosts.isNotEmpty) ...[
                     const SizedBox(height: 10),
-                    Text('최근 host', style: Theme.of(context).textTheme.titleSmall),
+                    Text('최근 host',
+                        style: Theme.of(context).textTheme.titleSmall),
                     const SizedBox(height: 6),
                     Wrap(
                       spacing: 8,
@@ -194,11 +209,29 @@ class _StatusScreenState extends State<StatusScreen> {
                               onPressed: widget.controller.isLoading
                                   ? null
                                   : () async {
-                                      await widget.controller.useRecentHost(entry);
+                                      await widget.controller
+                                          .useRecentHost(entry);
                                     },
                             ),
                           )
                           .toList(),
+                    ),
+                  ],
+                  if (widget.controller.discoveredHosts.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text('LAN에서 찾은 host',
+                        style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 6),
+                    ...widget.controller.discoveredHosts.map(
+                      (host) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _DiscoveredHostCard(
+                          host: host,
+                          disabled: widget.controller.isLoading,
+                          onUse: () =>
+                              widget.controller.useDiscoveredHost(host),
+                        ),
+                      ),
                     ),
                   ],
                 ],
@@ -207,7 +240,8 @@ class _StatusScreenState extends State<StatusScreen> {
             const SizedBox(height: 12),
             _SectionCard(
               title: '자동 Bootstrap',
-              subtitle: 'agent가 현재 연결 host 기준으로 signaling/workspace/thread 기본값을 내려줍니다.',
+              subtitle:
+                  'agent가 현재 연결 host 기준으로 signaling/workspace/thread 기본값을 내려줍니다.',
               accent: const Color(0xFFE7DBF8),
               background: const Color(0xFFFAF7FF),
               child: Column(
@@ -260,13 +294,14 @@ class _StatusScreenState extends State<StatusScreen> {
                   ),
                   if (bootstrap.recentThreads.isNotEmpty) ...[
                     const SizedBox(height: 8),
-                    Text('최근 스레드', style: Theme.of(context).textTheme.titleSmall),
+                    Text('최근 스레드',
+                        style: Theme.of(context).textTheme.titleSmall),
                     const SizedBox(height: 6),
                     ...bootstrap.recentThreads.take(3).map(
-                      (thread) => Text(
-                        '• ${thread.title} (${thread.updatedAtLabel})${thread.current ? ' · current' : ''}',
-                      ),
-                    ),
+                          (thread) => Text(
+                            '• ${thread.title} (${thread.updatedAtLabel})${thread.current ? ' · current' : ''}',
+                          ),
+                        ),
                   ],
                 ],
               ),
@@ -344,19 +379,23 @@ class _StatusScreenState extends State<StatusScreen> {
                     children: [
                       _MetricPill(
                         label: 'Avg RTT',
-                        value: _msLabel(widget.controller.ackMetrics.avgAckRttMs),
+                        value:
+                            _msLabel(widget.controller.ackMetrics.avgAckRttMs),
                       ),
                       _MetricPill(
                         label: 'Last RTT',
-                        value: _msLabel(widget.controller.ackMetrics.lastAckRttMs),
+                        value:
+                            _msLabel(widget.controller.ackMetrics.lastAckRttMs),
                       ),
                       _MetricPill(
                         label: 'Max RTT',
-                        value: _msLabel(widget.controller.ackMetrics.maxAckRttMs),
+                        value:
+                            _msLabel(widget.controller.ackMetrics.maxAckRttMs),
                       ),
                       _MetricPill(
                         label: 'Peak Queue',
-                        value: '${widget.controller.ackMetrics.maxPendingCount}',
+                        value:
+                            '${widget.controller.ackMetrics.maxPendingCount}',
                       ),
                       _MetricPill(
                         label: 'Acked',
@@ -364,7 +403,8 @@ class _StatusScreenState extends State<StatusScreen> {
                       ),
                       _MetricPill(
                         label: 'Retries',
-                        value: '${widget.controller.ackMetrics.retryDispatchCount}',
+                        value:
+                            '${widget.controller.ackMetrics.retryDispatchCount}',
                       ),
                       _MetricPill(
                         label: 'Expired',
@@ -451,7 +491,8 @@ class _StatusScreenState extends State<StatusScreen> {
                                   widget.controller.updateDirectPairingCode(
                                     _directPairingCodeController.text,
                                   );
-                                  await widget.controller.connectDirectSignaling();
+                                  await widget.controller
+                                      .connectDirectSignaling();
                                 },
                           icon: const Icon(Icons.usb),
                           label: const Text('Direct 연결'),
@@ -463,7 +504,8 @@ class _StatusScreenState extends State<StatusScreen> {
                           onPressed: widget.controller.isLoading
                               ? null
                               : () async {
-                                  await widget.controller.disconnectDirectSignaling();
+                                  await widget.controller
+                                      .disconnectDirectSignaling();
                                 },
                           icon: const Icon(Icons.usb_off),
                           label: const Text('Direct 종료'),
@@ -525,9 +567,8 @@ class _StatusScreenState extends State<StatusScreen> {
                   if (widget.controller.directSignalLogs.isEmpty)
                     const Text('로그 없음')
                   else
-                    ...widget.controller.directSignalLogs
-                        .take(10)
-                        .map((log) => Text(log,
+                    ...widget.controller.directSignalLogs.take(10).map((log) =>
+                        Text(log,
                             style: Theme.of(context).textTheme.bodySmall)),
                 ],
               ),
@@ -558,6 +599,77 @@ class _StatusScreenState extends State<StatusScreen> {
           ],
         );
       },
+    );
+  }
+}
+
+class _DiscoveredHostCard extends StatelessWidget {
+  const _DiscoveredHostCard({
+    required this.host,
+    required this.disabled,
+    required this.onUse,
+  });
+
+  final DiscoveredHostView host;
+  final bool disabled;
+  final Future<void> Function() onUse;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7FBF9),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFD6E9E3)),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(host.label, style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 6),
+          _InfoRow(
+            label: 'agent',
+            value: host.bootstrap.agentBaseUrl.isEmpty
+                ? '-'
+                : host.bootstrap.agentBaseUrl,
+          ),
+          _InfoRow(
+            label: 'signaling',
+            value: host.bootstrap.signalingBaseUrl.isEmpty
+                ? '-'
+                : host.bootstrap.signalingBaseUrl,
+          ),
+          _InfoRow(
+            label: 'workspace',
+            value: host.bootstrap.workspaceRoot.isEmpty
+                ? '-'
+                : host.bootstrap.workspaceRoot,
+          ),
+          _InfoRow(
+            label: 'thread',
+            value: host.bootstrap.currentThreadId.isEmpty
+                ? '-'
+                : host.bootstrap.currentThreadId,
+          ),
+          _InfoRow(
+            label: 'provider',
+            value: host.bootstrap.adapter.provider.isEmpty
+                ? '-'
+                : host.bootstrap.adapter.provider,
+          ),
+          if (host.sourceAddress.isNotEmpty)
+            _InfoRow(label: 'source', value: host.sourceAddress),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.tonal(
+              onPressed: disabled ? null : onUse,
+              child: const Text('이 host 사용'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

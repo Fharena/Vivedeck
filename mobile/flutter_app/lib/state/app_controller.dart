@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../services/agent_api.dart';
 import '../services/app_settings_store.dart';
+import '../services/lan_discovery_service.dart';
 import '../services/mobile_direct_signaling_session.dart';
 import '../services/signaling_api.dart';
 
@@ -15,14 +16,17 @@ class AppController extends ChangeNotifier {
     AgentApi? api,
     DirectSessionFactory? directSessionFactory,
     AppSettingsStore? settingsStore,
+    LanDiscoveryService? lanDiscoveryService,
   })  : _api = api ?? AgentApi(),
         _directSessionFactory =
             directSessionFactory ?? MobileDirectSignalingSession.new,
-        _settingsStore = settingsStore ?? InMemoryAppSettingsStore();
+        _settingsStore = settingsStore ?? InMemoryAppSettingsStore(),
+        _lanDiscoveryService = lanDiscoveryService ?? UdpLanDiscoveryService();
 
   final AgentApi _api;
   final DirectSessionFactory _directSessionFactory;
   final AppSettingsStore _settingsStore;
+  final LanDiscoveryService _lanDiscoveryService;
 
   String agentBaseUrl = 'http://127.0.0.1:8080';
   String signalingBaseUrl = 'http://127.0.0.1:8081';
@@ -47,6 +51,10 @@ class AppController extends ChangeNotifier {
   UnmodifiableListView<SavedHostEntry> get recentHosts =>
       UnmodifiableListView(_recentHosts);
   final List<SavedHostEntry> _recentHosts = [];
+
+  UnmodifiableListView<DiscoveredHostView> get discoveredHosts =>
+      UnmodifiableListView(_discoveredHosts);
+  final List<DiscoveredHostView> _discoveredHosts = [];
 
   bool _initialized = false;
 
@@ -193,9 +201,55 @@ class AppController extends ChangeNotifier {
     return refreshStatus();
   }
 
+  Future<void> discoverLanHosts() {
+    return _run('LAN host 찾기', () async {
+      final discovered = await _lanDiscoveryService.discover();
+      _discoveredHosts
+        ..clear()
+        ..addAll(
+          discovered
+              .map((item) => DiscoveredHostView.fromMap(item))
+              .where((item) => item.bootstrap.agentBaseUrl.trim().isNotEmpty),
+        );
+
+      if (_discoveredHosts.isEmpty) {
+        errorMessage = '같은 Wi-Fi에서 응답한 VibeDeck host를 찾지 못했습니다.';
+        return;
+      }
+
+      if (_discoveredHosts.length == 1) {
+        await _applyDiscoveredHostRaw(_discoveredHosts.single);
+      }
+    });
+  }
+
+  Future<void> useDiscoveredHost(DiscoveredHostView host) {
+    return _run('발견된 host 적용', () => _applyDiscoveredHostRaw(host));
+  }
+
   bool _isBootstrapUri(Uri uri) {
     return uri.scheme.toLowerCase() == 'vibedeck' &&
         uri.host.toLowerCase() == 'bootstrap';
+  }
+
+  Future<void> _applyDiscoveredHostRaw(DiscoveredHostView host) async {
+    final agent = host.bootstrap.agentBaseUrl.trim();
+    if (agent.isEmpty) {
+      return;
+    }
+
+    agentBaseUrl = agent;
+    if (host.bootstrap.signalingBaseUrl.trim().isNotEmpty) {
+      signalingBaseUrl = host.bootstrap.signalingBaseUrl.trim();
+    }
+    if (host.bootstrap.currentThreadId.trim().isNotEmpty) {
+      currentThreadId = host.bootstrap.currentThreadId.trim();
+    }
+    bootstrap = host.bootstrap;
+    _rememberCurrentHost();
+    await _persistSettings();
+    notifyListeners();
+    await _refreshStatusRaw();
   }
 
   Future<void> _applyBootstrapUriRaw(Uri uri) async {
@@ -521,8 +575,10 @@ class AppController extends ChangeNotifier {
 
     final threadRaw = detail['thread'];
     if (threadRaw is Map) {
-      final thread = ThreadSummaryView.fromMap(Map<String, dynamic>.from(threadRaw));
-      currentJobId = thread.currentJobId.isEmpty ? currentJobId : thread.currentJobId;
+      final thread =
+          ThreadSummaryView.fromMap(Map<String, dynamic>.from(threadRaw));
+      currentJobId =
+          thread.currentJobId.isEmpty ? currentJobId : thread.currentJobId;
     }
 
     _syncDerivedStateFromThreadEvents();
@@ -719,7 +775,8 @@ class AppController extends ChangeNotifier {
           ..addAll(_parsePatchFiles(event.data['files']));
       }
       if (event.kind == 'patch_applied') {
-        patchResultStatus = event.data['status']?.toString() ?? patchResultStatus;
+        patchResultStatus =
+            event.data['status']?.toString() ?? patchResultStatus;
         patchResultMessage = event.body.isEmpty
             ? (event.data['message']?.toString() ?? patchResultMessage)
             : event.body;
@@ -790,7 +847,8 @@ class AppController extends ChangeNotifier {
     }
     return raw
         .whereType<Map>()
-        .map((item) => ThreadSummaryView.fromMap(Map<String, dynamic>.from(item)))
+        .map((item) =>
+            ThreadSummaryView.fromMap(Map<String, dynamic>.from(item)))
         .toList();
   }
 
@@ -1241,6 +1299,38 @@ class AdapterRuntimeView {
   }
 }
 
+class DiscoveredHostView {
+  const DiscoveredHostView({
+    this.displayName = '',
+    this.sourceAddress = '',
+    this.bootstrap = const BootstrapStatusView(),
+  });
+
+  final String displayName;
+  final String sourceAddress;
+  final BootstrapStatusView bootstrap;
+
+  factory DiscoveredHostView.fromMap(Map<String, dynamic> map) {
+    return DiscoveredHostView(
+      displayName: map['displayName']?.toString() ?? '',
+      sourceAddress: map['sourceAddress']?.toString() ?? '',
+      bootstrap: BootstrapStatusView.fromMap(map),
+    );
+  }
+
+  String get label {
+    final primary = displayName.trim();
+    if (primary.isNotEmpty) {
+      return primary;
+    }
+    final agent = bootstrap.agentBaseUrl.trim();
+    if (agent.isNotEmpty) {
+      return agent;
+    }
+    return sourceAddress.isEmpty ? '발견된 host' : sourceAddress;
+  }
+}
+
 class BootstrapStatusView {
   const BootstrapStatusView({
     this.agentBaseUrl = '',
@@ -1271,9 +1361,10 @@ class BootstrapStatusView {
           : const BootstrapAdapterView(),
       recentThreads: recentThreadsRaw is List
           ? recentThreadsRaw
-                .whereType<Map>()
-                .map((item) => BootstrapThreadView.fromMap(Map<String, dynamic>.from(item)))
-                .toList()
+              .whereType<Map>()
+              .map((item) =>
+                  BootstrapThreadView.fromMap(Map<String, dynamic>.from(item)))
+              .toList()
           : const [],
     );
   }

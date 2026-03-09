@@ -28,7 +28,7 @@
 
 - `AppController`가 화면 상태와 제어 경로(HTTP/DIRECT) 라우팅을 단일 진입점으로 관리
 - `AgentApi`(`mobile/flutter_app/lib/services/agent_api.dart`)가 HTTP 요청/오류 처리 담당
-- `GET /v1/agent/bootstrap`가 agent/signaling/workspace/adapter/current thread/recent threads 기본값을 내려주고, `AppSettingsStore`(`mobile/flutter_app/lib/services/app_settings_store.dart`)가 최근 host를 로컬에 저장합니다. 모바일 앱은 `app_links` 기반 `vibedeck://bootstrap` deep link도 받아 bootstrap 값을 즉시 적용합니다.
+- `GET /v1/agent/bootstrap`가 agent/signaling/workspace/adapter/current thread/recent threads 기본값을 내려주고, `AppSettingsStore`(`mobile/flutter_app/lib/services/app_settings_store.dart`)가 최근 host를 로컬에 저장합니다. 모바일 앱은 `app_links` 기반 `vibedeck://bootstrap` deep link도 받아 bootstrap 값을 즉시 적용하고, `UdpLanDiscoveryService`(`mobile/flutter_app/lib/services/lan_discovery_service.dart`)가 UDP discovery(`:42777`)로 같은 Wi-Fi host의 bootstrap 값을 찾아 상태 화면에 제안합니다.
 - `AppController`가 `/v1/agent/runtime/metrics`를 조회해 ACK RTT/queue depth/transport split 메트릭을 상태 화면에 반영하고, 외부 수집기는 `/metrics` Prometheus endpoint를 scrape할 수 있습니다.
 - 기본 제어 메시지 전송 흐름:
   1. `PROMPT_SUBMIT` / `PATCH_APPLY` / `RUN_PROFILE` envelope 전송
@@ -107,7 +107,7 @@ TypeScript 브리지 패키지 구성:
 - `npm --prefix extensions/vibedeck-bridge run smoke:extension`는 fake VS Code host + fake cursor-agent를 사용해 `extension.ts -> controller -> TCP bridge -> JSON-RPC` 활성화 경로를 검증합니다. extension 설정의 `vibedeckBridge.cursorAgent.syncIgnoredPaths`도 이 smoke에서 같이 검증합니다.
 - 현재 auto-setup 방향은 다음과 같습니다.
   - IDE: extension이 bridge/runtime과 local agent lifecycle을 내부에서 올리고 panel은 `agent.host/port`를 자동 사용
-  - 모바일: `GET /v1/agent/bootstrap`, 최근 host 복원, `vibedeck://bootstrap` deep link로 agent/signaling/workspace/thread 기본값을 자동 적용하고, 다음 단계에서 LAN discovery로 수동 입력을 더 줄임
+  - 모바일: `GET /v1/agent/bootstrap`, 최근 host 복원, `vibedeck://bootstrap` deep link, UDP LAN discovery(`LAN_DISCOVERY_ADDR`, 기본 `:42777`)로 agent/signaling/workspace/thread 기본값을 자동 적용
   - 배포: VSIX 또는 향후 npm/installer 형태로 최소 세팅화
 
 ## 프로토콜 전략

@@ -15,6 +15,7 @@ import (
 
 func main() {
 	addr := envOr("AGENT_ADDR", ":8080")
+	lanDiscoveryAddr := envOr("LAN_DISCOVERY_ADDR", agent.DefaultLANDiscoveryAddr)
 	profilePath := envOr("RUN_PROFILE_FILE", "configs/run-profiles.json")
 	signalingBaseURL := envOr("SIGNALING_BASE_URL", "http://127.0.0.1:8081")
 	agentPublicBaseURL := envOr("AGENT_PUBLIC_BASE_URL", "")
@@ -54,6 +55,21 @@ func main() {
 		PublicAgentBaseURL:     agentPublicBaseURL,
 		PublicSignalingBaseURL: signalingPublicBaseURL,
 	})
+
+	discoveryCloser, err := agent.StartLANDiscoveryResponder(agent.LANDiscoveryConfig{
+		Addr:            lanDiscoveryAddr,
+		AgentListenAddr: addr,
+		Server:          server,
+	})
+	if err != nil {
+		log.Printf("lan discovery disabled: %v", err)
+	} else if discoveryCloser != nil {
+		defer func() {
+			if closeErr := discoveryCloser.Close(); closeErr != nil {
+				log.Printf("close lan discovery responder: %v", closeErr)
+			}
+		}()
+	}
 
 	log.Printf("agent server listening on %s (adapter=%s, threadStore=%s)", addr, adapter.Name(), threadStorePath)
 	if err := http.ListenAndServe(addr, server.Handler()); err != nil {

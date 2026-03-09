@@ -33,9 +33,13 @@ function Get-SingleAndroidDeviceId {
 
 $appRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 $repoRoot = Resolve-Path (Join-Path $appRoot '..\..')
-$safeRootParent = Join-Path $env:TEMP 'vibedeck_flutter_safe'
-$safeRepoRoot = Join-Path $safeRootParent 'repo'
-$linked = $false
+$repoItem = Get-Item $repoRoot
+if ($repoItem.LinkType -eq 'Junction' -and $repoItem.Target -and $repoItem.Target.Count -gt 0) {
+  $repoRoot = $repoItem.Target[0]
+}
+$substDrive = 'V:'
+$appDataRoot = Join-Path $env:TEMP 'vibedeck_flutter_appdata'
+$substMounted = $false
 
 if (-not $FlutterArgs -or $FlutterArgs.Count -eq 0) {
   if (-not $DeviceId) {
@@ -49,30 +53,26 @@ if (-not $FlutterArgs -or $FlutterArgs.Count -eq 0) {
 }
 
 try {
-  New-Item -ItemType Directory -Force -Path $safeRootParent | Out-Null
-  if (Test-Path $safeRepoRoot) {
-    Remove-Item $safeRepoRoot -Force -Recurse
-  }
-  New-Item -ItemType Junction -Path $safeRepoRoot -Target $repoRoot | Out-Null
-  $linked = $true
+  New-Item -ItemType Directory -Force -Path $appDataRoot | Out-Null
+  $env:APPDATA = $appDataRoot
 
-  $flutter = Join-Path $safeRepoRoot 'tools\flutter\bin\flutter.bat'
-  $safeAppRoot = Join-Path $safeRepoRoot 'mobile\flutter_app'
-  $localProperties = Join-Path $safeAppRoot 'android\local.properties'
+  cmd /c "subst $substDrive /d" | Out-Null
+  cmd /c "subst $substDrive `"$repoRoot`"" | Out-Null
+  $substMounted = $true
+
+  $flutter = "$substDrive\tools\flutter\bin\flutter.bat"
+  $safeAppRoot = "$substDrive\mobile\flutter_app"
+  $localProperties = "$safeAppRoot\android\local.properties"
 
   if (Test-Path $localProperties) {
     Remove-Item $localProperties -Force
   }
 
-  Push-Location $safeAppRoot
-  & $flutter @FlutterArgs
+  $argString = [string]::Join(' ', $FlutterArgs)
+  cmd /c "pushd $safeAppRoot && call $flutter $argString"
   exit $LASTEXITCODE
 } finally {
-  Pop-Location -ErrorAction SilentlyContinue
-  if ($linked -and (Test-Path $safeRepoRoot)) {
-    Remove-Item $safeRepoRoot -Force -Recurse
-  }
-  if ((Test-Path $safeRootParent) -and -not (Get-ChildItem $safeRootParent -Force | Select-Object -First 1)) {
-    Remove-Item $safeRootParent -Force
+  if ($substMounted) {
+    cmd /c "subst $substDrive /d" | Out-Null
   }
 }
