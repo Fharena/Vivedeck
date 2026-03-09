@@ -92,6 +92,8 @@ interface ThreadPanelDerivedState {
   patchFiles: ThreadPanelPatchFile[];
   patchResultStatus: string;
   patchResultMessage: string;
+  patchAvailabilityReason: string;
+  currentJobFiles: string[];
   runProfileId: string;
   runStatus: string;
   runSummary: string;
@@ -145,6 +147,7 @@ class DefaultThreadPanelController implements ThreadPanelController {
   private composeMode = false;
   private lastState: ThreadPanelViewState | undefined;
   private lastStatusMessage = "";
+  private lastErrorMessage = "";
   private sequence = 1;
 
   constructor(vscodeLike: ThreadPanelVscodeLike, api: AgentPanelApi) {
@@ -255,7 +258,7 @@ class DefaultThreadPanelController implements ThreadPanelController {
         composeMode: this.composeMode,
         detail,
         statusMessage: this.lastStatusMessage,
-        errorMessage: "",
+        errorMessage: this.lastErrorMessage,
       });
 
       this.lastState = state;
@@ -278,38 +281,48 @@ class DefaultThreadPanelController implements ThreadPanelController {
 
   private async handleMessage(rawMessage: unknown): Promise<void> {
     const message = objectValue(rawMessage) as unknown as ThreadPanelMessage;
-    switch (text(message.type)) {
-      case "refresh":
-        await this.refresh();
-        return;
-      case "new-thread":
-        this.composeMode = true;
-        this.selectedThreadId = "";
-        this.lastStatusMessage = "새 스레드를 작성 중입니다.";
-        await this.refresh();
-        return;
-      case "select-thread":
-        this.composeMode = false;
-        this.selectedThreadId = text(message.threadId);
-        this.lastStatusMessage = "";
-        await this.refresh();
-        return;
-      case "submit-prompt":
-        await this.submitPrompt(message);
-        return;
-      case "apply-patch":
-        await this.applyPatch();
-        return;
-      case "run-profile":
-        await this.runProfile(text(message.profileId));
-        return;
-      case "open-location":
-        await this.openLocation(message);
-        return;
-      default:
-        return;
+    try {
+      switch (text(message.type)) {
+        case "refresh":
+          await this.refresh();
+          return;
+        case "new-thread":
+          this.composeMode = true;
+          this.selectedThreadId = "";
+          this.lastStatusMessage = "새 스레드를 작성 중입니다.";
+          this.lastErrorMessage = "";
+          await this.refresh();
+          return;
+        case "select-thread":
+          this.composeMode = false;
+          this.selectedThreadId = text(message.threadId);
+          this.lastStatusMessage = "";
+          this.lastErrorMessage = "";
+          await this.refresh();
+          return;
+        case "submit-prompt":
+          await this.submitPrompt(message);
+          return;
+        case "apply-patch":
+          await this.applyPatch();
+          return;
+        case "run-profile":
+          await this.runProfile(text(message.profileId));
+          return;
+        case "open-location":
+          await this.openLocation(message);
+          return;
+        default:
+          return;
+      }
+    } catch (error) {
+      this.lastErrorMessage = describeError(error);
+      this.lastStatusMessage = "";
+      this.vscode.window.showErrorMessage(this.lastErrorMessage);
+      await this.refresh();
     }
   }
+
   private async submitPrompt(message: ThreadPanelMessage): Promise<void> {
     const prompt = text(message.prompt).trim();
     if (!prompt) {
@@ -324,17 +337,24 @@ class DefaultThreadPanelController implements ThreadPanelController {
       contextOptions: sanitizeContextOptions(message.contextOptions),
     });
 
-    const result = await this.api.sendEnvelope(settings.agentBaseUrl, envelope);
-    this.applyEnvelopeResponses(result.responses);
+    this.lastErrorMessage = "";
+    const responses = await this.sendEnvelopeAndRecover(settings.agentBaseUrl, envelope);
+    this.applyEnvelopeResponses(responses);
     this.composeMode = false;
-    this.lastStatusMessage = "프롬프트를 전송했습니다.";
+    if (!this.lastErrorMessage) {
+      this.lastStatusMessage = "프롬프트를 전송했습니다.";
+    }
     await this.refresh();
   }
 
   private async applyPatch(): Promise<void> {
     const currentJobId = this.lastState?.currentJobId ?? "";
-    if (!currentJobId) {
-      this.vscode.window.showWarningMessage("적용할 패치가 없습니다. 먼저 프롬프트를 실행하세요.");
+    const patchFiles = this.lastState?.derived.patchFiles ?? [];
+    if (!currentJobId || patchFiles.length === 0) {
+      const message =
+        this.lastState?.derived.patchAvailabilityReason ||
+        "적용할 패치가 없습니다. 먼저 프롬프트를 실행하세요.";
+      this.vscode.window.showWarningMessage(message);
       return;
     }
 
@@ -344,8 +364,12 @@ class DefaultThreadPanelController implements ThreadPanelController {
       mode: "all",
     });
 
-    await this.api.sendEnvelope(settings.agentBaseUrl, envelope);
-    this.lastStatusMessage = "패치 적용을 요청했습니다.";
+    this.lastErrorMessage = "";
+    const responses = await this.sendEnvelopeAndRecover(settings.agentBaseUrl, envelope);
+    this.applyEnvelopeResponses(responses);
+    if (!this.lastErrorMessage) {
+      this.lastStatusMessage = "패치 적용을 요청했습니다.";
+    }
     await this.refresh();
   }
 
@@ -368,8 +392,12 @@ class DefaultThreadPanelController implements ThreadPanelController {
       profileId: normalizedProfileID,
     });
 
-    await this.api.sendEnvelope(settings.agentBaseUrl, envelope);
-    this.lastStatusMessage = `프로파일 실행을 요청했습니다: ${normalizedProfileID}`;
+    this.lastErrorMessage = "";
+    const responses = await this.sendEnvelopeAndRecover(settings.agentBaseUrl, envelope);
+    this.applyEnvelopeResponses(responses);
+    if (!this.lastErrorMessage) {
+      this.lastStatusMessage = "프로파일 실행을 요청했습니다: " + normalizedProfileID;
+    }
     await this.refresh();
   }
 
@@ -386,8 +414,12 @@ class DefaultThreadPanelController implements ThreadPanelController {
       column: numberValue(message.column),
     });
 
-    await this.api.sendEnvelope(settings.agentBaseUrl, envelope);
-    this.lastStatusMessage = `위치를 열었습니다: ${targetPath}`;
+    this.lastErrorMessage = "";
+    const responses = await this.sendEnvelopeAndRecover(settings.agentBaseUrl, envelope);
+    this.applyEnvelopeResponses(responses);
+    if (!this.lastErrorMessage) {
+      this.lastStatusMessage = "위치를 열었습니다: " + targetPath;
+    }
     await this.refresh();
   }
 
@@ -412,15 +444,67 @@ class DefaultThreadPanelController implements ThreadPanelController {
     return this.lastState?.currentThread?.sessionId || "sid-vibedeck-panel";
   }
 
+  private async sendEnvelopeAndRecover(
+    baseUrl: string,
+    envelope: AgentPanelEnvelope,
+  ): Promise<Record<string, unknown>[]> {
+    try {
+      const result = await this.api.sendEnvelope(baseUrl, envelope);
+      return result.responses;
+    } catch (error) {
+      if (error instanceof AgentPanelApiError) {
+        const recovered = extractResponsesFromBody(error.responseBody);
+        if (recovered.length > 0) {
+          return recovered;
+        }
+      }
+      throw error;
+    }
+  }
+
   private applyEnvelopeResponses(responses: Record<string, unknown>[]): void {
     for (const response of responses) {
       const responseType = text(response.type);
       const payload = objectValue(response.payload);
+      if (responseType === "CMD_ACK") {
+        if (payload.accepted !== true) {
+          this.lastErrorMessage =
+            text(payload.message) || "agent 요청을 처리하지 못했습니다.";
+        }
+        continue;
+      }
       if (responseType === "PROMPT_ACK") {
         const threadID = text(payload.threadId);
         if (threadID) {
           this.selectedThreadId = threadID;
           this.composeMode = false;
+        }
+        this.lastErrorMessage = "";
+        continue;
+      }
+      if (responseType === "PATCH_READY") {
+        this.lastErrorMessage = "";
+        continue;
+      }
+      if (responseType === "PATCH_RESULT") {
+        const status = text(payload.status).toLowerCase();
+        if (status === "failed") {
+          this.lastErrorMessage =
+            text(payload.message) || "패치 적용에 실패했습니다.";
+        } else {
+          this.lastErrorMessage = "";
+        }
+        continue;
+      }
+      if (responseType === "RUN_RESULT") {
+        const status = text(payload.status).toLowerCase();
+        if (status === "failed") {
+          this.lastErrorMessage =
+            text(payload.summary) ||
+            text(payload.message) ||
+            "프로파일 실행에 실패했습니다.";
+        } else {
+          this.lastErrorMessage = "";
         }
       }
     }
@@ -496,7 +580,7 @@ function buildViewState(input: {
     currentThread,
     currentJobId: currentThread?.currentJobId || "",
     events: input.detail?.events ?? [],
-    derived: deriveThreadState(input.detail),
+    derived: deriveThreadState(input.detail, input.errorMessage),
   };
 }
 function buildFallbackState(
@@ -537,15 +621,28 @@ function buildFallbackState(
   };
 }
 
-function deriveThreadState(detail?: AgentPanelThreadDetail): ThreadPanelDerivedState {
+function deriveThreadState(
+  detail: AgentPanelThreadDetail | undefined,
+  errorMessage: string,
+): ThreadPanelDerivedState {
   const state = emptyDerivedState();
   if (!detail) {
     return state;
   }
 
+  const currentJobId = detail.thread.currentJobId;
+  let sawPromptAccepted = false;
+
   for (const event of detail.events) {
     if (event.kind === "prompt_submitted" && event.body.trim()) {
       state.promptText = event.body;
+      continue;
+    }
+    if (
+      event.kind === "prompt_accepted" &&
+      (!currentJobId || event.jobId === currentJobId)
+    ) {
+      sawPromptAccepted = true;
       continue;
     }
     if (event.kind === "patch_ready") {
@@ -564,9 +661,22 @@ function deriveThreadState(detail?: AgentPanelThreadDetail): ThreadPanelDerivedS
       state.runSummary = text(event.data.summary) || event.body;
       state.runExcerpt = text(event.data.excerpt);
       state.runOutput = text(event.data.output) || state.runExcerpt;
+      state.currentJobFiles = parseStringList(event.data.changedFiles);
       state.runErrors = parseRunErrors(event.data.topErrors);
     }
   }
+
+  if (state.currentJobFiles.length === 0) {
+    state.currentJobFiles = patchFilePaths(state.patchFiles);
+  }
+
+  state.patchAvailabilityReason = patchAvailabilityReason({
+    currentJobId,
+    patchFiles: state.patchFiles,
+    patchSummary: state.patchSummary,
+    errorMessage,
+    sawPromptAccepted,
+  });
 
   return state;
 }
@@ -578,6 +688,8 @@ function emptyDerivedState(): ThreadPanelDerivedState {
     patchFiles: [],
     patchResultStatus: "",
     patchResultMessage: "",
+    patchAvailabilityReason: "",
+    currentJobFiles: [],
     runProfileId: "",
     runStatus: "",
     runSummary: "",
@@ -609,6 +721,51 @@ function parseRunErrors(value: unknown): ThreadPanelRunError[] {
   }));
 }
 
+function parseStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => text(item)).filter((item) => item.length > 0);
+}
+
+function patchFilePaths(files: ThreadPanelPatchFile[]): string[] {
+  return files.map((file) => file.path).filter((item) => item.length > 0);
+}
+
+function patchAvailabilityReason(input: {
+  currentJobId: string;
+  patchFiles: ThreadPanelPatchFile[];
+  patchSummary: string;
+  errorMessage: string;
+  sawPromptAccepted: boolean;
+}): string {
+  if (input.patchFiles.length > 0) {
+    return "";
+  }
+  if (!input.currentJobId.trim()) {
+    return "먼저 프롬프트를 보내 작업을 시작하세요.";
+  }
+
+  const normalizedSummary = input.patchSummary.trim();
+  if (normalizedSummary) {
+    if (normalizedSummary.toLowerCase().includes("without code changes")) {
+      return "이 작업은 코드 변경 없이 완료되어 적용할 파일이 없습니다.";
+    }
+    return "적용할 파일 패치가 없습니다. " + normalizedSummary;
+  }
+
+  const normalizedError = input.errorMessage.trim();
+  if (normalizedError) {
+    return "패치를 만들지 못했습니다. " + normalizedError;
+  }
+
+  if (input.sawPromptAccepted) {
+    return "패치가 아직 준비되지 않았거나 코드 변경이 없었습니다.";
+  }
+
+  return "적용할 패치가 없습니다.";
+}
+
 function sanitizeContextOptions(value: unknown): Record<string, boolean> {
   const input = objectValue(value);
   return {
@@ -627,6 +784,13 @@ function compactObject(value: Record<string, unknown>): Record<string, unknown> 
     }
   }
   return next;
+}
+
+function extractResponsesFromBody(body: Record<string, unknown> | null): Record<string, unknown>[] {
+  if (!body) {
+    return [];
+  }
+  return objectArray(body.responses);
 }
 
 function describeError(error: unknown): string {
@@ -844,7 +1008,7 @@ function renderThreadPanelHtml(nonce: string): string {
         currentThread: null,
         currentJobId: "",
         events: [],
-        derived: { promptText: "", patchSummary: "", patchFiles: [], patchResultStatus: "", patchResultMessage: "", runProfileId: "", runStatus: "", runSummary: "", runExcerpt: "", runOutput: "", runErrors: [] },
+        derived: { promptText: "", patchSummary: "", patchFiles: [], patchResultStatus: "", patchResultMessage: "", patchAvailabilityReason: "", currentJobFiles: [], runProfileId: "", runStatus: "", runSummary: "", runExcerpt: "", runOutput: "", runErrors: [] },
       };
     }
 
@@ -879,7 +1043,7 @@ function renderThreadPanelHtml(nonce: string): string {
         '      </div>',
         '      <div class="row">',
         '        <button class="primary" data-action="submit-prompt">프롬프트 전송</button>',
-        '        <button data-action="apply-patch"' + (state.currentJobId ? '' : ' disabled') + '>패치 전체 적용</button>',
+        '        <button data-action="apply-patch"' + (state.currentJobId && state.derived.patchFiles.length ? '' : ' disabled') + '>패치 전체 적용</button>',
         '        <select id="run-profile-select">' + renderRunProfiles() + '</select>',
         '        <button data-action="run-profile"' + (state.currentJobId && selectedRunProfileId ? '' : ' disabled') + '>프로파일 실행</button>',
         '      </div>',
@@ -934,7 +1098,7 @@ function renderThreadPanelHtml(nonce: string): string {
         items.push('<div class="pill">apply ' + esc(state.derived.patchResultStatus || '-') + ' · ' + esc(state.derived.patchResultMessage || '-') + '</div>');
       }
       if (!state.derived.patchFiles.length) {
-        items.push('<div class="empty">저장된 패치 파일이 없습니다.</div>');
+        items.push('<div class="empty">' + esc(state.derived.patchAvailabilityReason || '저장된 패치 파일이 없습니다.') + '</div>');
         return items.join('');
       }
       items.push('<div class="files">' + state.derived.patchFiles.map(function(file) {
@@ -945,6 +1109,12 @@ function renderThreadPanelHtml(nonce: string): string {
 
     function renderRun() {
       const items = ['<div class="pill">status ' + esc(state.derived.runStatus || '-') + '</div>', '<div class="pill">summary ' + esc(state.derived.runSummary || '-') + '</div>'];
+      if (state.derived.currentJobFiles.length) {
+        items.push('<div class="muted">현재 job 기준 파일</div>');
+        items.push('<div class="files">' + state.derived.currentJobFiles.map(function(path) {
+          return '<div class="file"><div class="title">' + esc(path) + '</div></div>';
+        }).join('') + '</div>');
+      }
       if (state.derived.runOutput || state.derived.runExcerpt) {
         items.push('<pre>' + esc(state.derived.runOutput || state.derived.runExcerpt) + '</pre>');
       } else {

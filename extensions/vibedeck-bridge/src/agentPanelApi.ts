@@ -96,11 +96,17 @@ export interface AgentPanelApi {
 
 export class AgentPanelApiError extends Error {
   readonly statusCode: number;
+  readonly responseBody: Record<string, unknown> | null;
 
-  constructor(statusCode: number, message: string) {
+  constructor(
+    statusCode: number,
+    message: string,
+    responseBody: Record<string, unknown> | null = null,
+  ) {
     super(message);
     this.name = "AgentPanelApiError";
     this.statusCode = statusCode;
+    this.responseBody = responseBody;
   }
 }
 
@@ -251,7 +257,13 @@ async function requestJson(
               typeof decoded.error === "string"
                 ? decoded.error
                 : JSON.stringify(decoded);
-            reject(new AgentPanelApiError(statusCode, message || "agent request failed"));
+            reject(
+              new AgentPanelApiError(
+                statusCode,
+                message || "agent request failed",
+                decoded,
+              ),
+            );
             return;
           }
           resolve(decoded);
