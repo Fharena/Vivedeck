@@ -24,6 +24,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
       builder: (context, _) {
         final files = widget.controller.patchFiles;
         final profiles = widget.controller.runProfiles;
+        final patchHint = widget.controller.patchAvailabilityReason;
+        final currentJobFiles = widget.controller.currentJobFiles;
         _syncSelection(files);
 
         final totalHunks = files.fold<int>(0, (sum, file) => sum + file.hunks.length);
@@ -70,7 +72,12 @@ class _ReviewScreenState extends State<ReviewScreen> {
                   ),
                   const SizedBox(height: 12),
                   if (files.isEmpty)
-                    const Text('PATCH_READY 응답이 도착하면 파일/헝크가 여기에 표시됩니다.')
+                    Text(
+                      patchHint,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: const Color(0xFF6B7280),
+                          ),
+                    )
                   else
                     ...files.map(
                       (file) => _PatchFileCard(
@@ -99,7 +106,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
               children: [
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: widget.controller.isLoading || files.isEmpty
+                    onPressed: !widget.controller.canApplyAllPatch
                         ? null
                         : () async {
                             await widget.controller.applyPatch(
@@ -144,6 +151,14 @@ class _ReviewScreenState extends State<ReviewScreen> {
                 ),
               ],
             ),
+            if (!widget.controller.canApplyAllPatch && patchHint.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _InlineResultBanner(
+                title: '전체 적용 안내',
+                status: 'disabled',
+                message: patchHint,
+              ),
+            ],
             if (widget.controller.patchResultStatus.isNotEmpty) ...[
               const SizedBox(height: 12),
               _InlineResultBanner(
@@ -187,7 +202,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
               const SizedBox(height: 12),
               _SectionCard(
                 title: '실행 결과',
-                subtitle: '요약과 함께 출력 발췌를 바로 확인합니다.',
+                subtitle: '현재 job 기준 파일 목록과 출력 전문을 함께 확인합니다.',
                 accent: const Color(0xFFB9E6DA),
                 background: const Color(0xFFEDF9F6),
                 child: Column(
@@ -214,6 +229,27 @@ class _ReviewScreenState extends State<ReviewScreen> {
                           ? '아직 실행 결과 요약이 없습니다.'
                           : widget.controller.runSummary,
                     ),
+                    if (currentJobFiles.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        '현재 작업 파일',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFDCE3ED)),
+                        ),
+                        padding: const EdgeInsets.all(12),
+                        child: SelectableText(
+                          currentJobFiles.map((path) => '• $path').join('\n'),
+                          style: const TextStyle(height: 1.35),
+                        ),
+                      ),
+                    ],
                     if (widget.controller.topErrors.isNotEmpty) ...[
                       const SizedBox(height: 10),
                       Text(

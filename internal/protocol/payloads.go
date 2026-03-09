@@ -51,13 +51,14 @@ type ParsedError struct {
 }
 
 type RunResultPayload struct {
-	JobID     string        `json:"jobId"`
-	ProfileID string        `json:"profileId"`
-	Status    string        `json:"status"`
-	Summary   string        `json:"summary"`
-	TopErrors []ParsedError `json:"topErrors,omitempty"`
-	Excerpt   string        `json:"excerpt,omitempty"`
-	Output    string        `json:"output,omitempty"`
+	JobID        string        `json:"jobId"`
+	ProfileID    string        `json:"profileId"`
+	Status       string        `json:"status"`
+	Summary      string        `json:"summary"`
+	TopErrors    []ParsedError `json:"topErrors,omitempty"`
+	Excerpt      string        `json:"excerpt,omitempty"`
+	Output       string        `json:"output,omitempty"`
+	ChangedFiles []string      `json:"changedFiles,omitempty"`
 }
 
 type OpenLocationPayload struct {

@@ -115,15 +115,17 @@ func (o *Orchestrator) handlePromptSubmit(ctx context.Context, env protocol.Enve
 	}
 
 	jobID := o.newID("job")
+	patchFiles := patchFilePaths(patch.Files)
 	o.mu.Lock()
 	o.jobs[jobID] = &Job{
-		ID:        jobID,
-		ThreadID:  threadID,
-		SessionID: env.SID,
-		TaskID:    taskHandle.TaskID,
-		Prompt:    payload.Prompt,
-		State:     "patch_ready",
-		CreatedAt: time.Now().UTC(),
+		ID:         jobID,
+		ThreadID:   threadID,
+		SessionID:  env.SID,
+		TaskID:     taskHandle.TaskID,
+		Prompt:     payload.Prompt,
+		State:      "patch_ready",
+		PatchFiles: patchFiles,
+		CreatedAt:  time.Now().UTC(),
 	}
 	o.mu.Unlock()
 	o.threadStore.AssignJob(threadID, jobID)
@@ -286,6 +288,11 @@ func (o *Orchestrator) handleRunProfile(ctx context.Context, env protocol.Envelo
 		return o.ackFail(env, "run result is empty", errors.New("run result is nil"))
 	}
 
+	changedFiles := append([]string(nil), runResult.ChangedFiles...)
+	if len(changedFiles) == 0 {
+		changedFiles = append(changedFiles, job.PatchFiles...)
+	}
+
 	o.setJobState(payload.JobID, "completed")
 	_, _ = o.threadStore.AppendEvent(job.ThreadID, ThreadEvent{
 		JobID: job.ID,
@@ -294,24 +301,26 @@ func (o *Orchestrator) handleRunProfile(ctx context.Context, env protocol.Envelo
 		Title: "실행 결과",
 		Body:  firstNonEmptyText(runResult.Summary, runResult.Excerpt),
 		Data: map[string]any{
-			"profileId": payload.ProfileID,
-			"status":    runResult.Status,
-			"summary":   runResult.Summary,
-			"excerpt":   runResult.Excerpt,
-			"output":    runResult.Output,
-			"topErrors": runResult.TopErrors,
+			"profileId":    payload.ProfileID,
+			"status":       runResult.Status,
+			"summary":      runResult.Summary,
+			"excerpt":      runResult.Excerpt,
+			"output":       runResult.Output,
+			"topErrors":    runResult.TopErrors,
+			"changedFiles": changedFiles,
 		},
 	})
 
 	ack, _ := protocol.NewCmdAck(env.SID, o.nextSeq(), env.RID, true, "run started")
 	resultEnvelope, _ := protocol.NewEnvelope(env.SID, o.newID("run_result"), o.nextSeq(), protocol.TypeRunResult, protocol.RunResultPayload{
-		JobID:     payload.JobID,
-		ProfileID: runResult.ProfileID,
-		Status:    runResult.Status,
-		Summary:   runResult.Summary,
-		TopErrors: runResult.TopErrors,
-		Excerpt:   runResult.Excerpt,
-		Output:    runResult.Output,
+		JobID:        payload.JobID,
+		ProfileID:    runResult.ProfileID,
+		Status:       runResult.Status,
+		Summary:      runResult.Summary,
+		TopErrors:    runResult.TopErrors,
+		Excerpt:      runResult.Excerpt,
+		Output:       runResult.Output,
+		ChangedFiles: changedFiles,
 	})
 
 	return []protocol.Envelope{ack, resultEnvelope}, nil
@@ -376,4 +385,24 @@ func (o *Orchestrator) setJobState(jobID, state string) {
 	if job, ok := o.jobs[jobID]; ok {
 		job.State = state
 	}
+}
+
+func patchFilePaths(files []protocol.FilePatch) []string {
+	if len(files) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(files))
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		if file.Path == "" {
+			continue
+		}
+		if _, ok := seen[file.Path]; ok {
+			continue
+		}
+		seen[file.Path] = struct{}{}
+		paths = append(paths, file.Path)
+	}
+	return paths
 }
