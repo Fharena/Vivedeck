@@ -49,6 +49,8 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("/v1/agent/run-profiles", s.handleRunProfiles)
 	mux.HandleFunc("/v1/agent/threads", s.handleThreads)
 	mux.HandleFunc("/v1/agent/threads/", s.handleThreadDetail)
+	mux.HandleFunc("/v1/agent/sessions", s.handleSessions)
+	mux.HandleFunc("/v1/agent/sessions/", s.handleSessionDetail)
 	mux.HandleFunc("/v1/agent/p2p/start", s.handleP2PStart)
 	mux.HandleFunc("/v1/agent/p2p/status", s.handleP2PStatus)
 	mux.HandleFunc("/v1/agent/p2p/stop", s.handleP2PStop)
@@ -301,6 +303,44 @@ func (s *HTTPServer) handleThreadDetail(w http.ResponseWriter, r *http.Request) 
 	detail, ok := s.orchestrator.ThreadStore().Get(threadID)
 	if !ok {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "thread not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
+func (s *HTTPServer) handleSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	sessions := []SharedSessionSummary{}
+	if s.orchestrator != nil && s.orchestrator.SessionStore() != nil {
+		sessions = s.orchestrator.SessionStore().List()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+}
+
+func (s *HTTPServer) handleSessionDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	sessionID := strings.TrimPrefix(r.URL.Path, "/v1/agent/sessions/")
+	sessionID = strings.TrimSpace(strings.Trim(sessionID, "/"))
+	if sessionID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session id is required"})
+		return
+	}
+	if s.orchestrator == nil || s.orchestrator.SessionStore() == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+
+	detail, ok := s.orchestrator.SessionStore().Get(sessionID)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)

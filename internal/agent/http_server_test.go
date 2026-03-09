@@ -398,10 +398,75 @@ func TestHTTPServerBootstrapEndpoint(t *testing.T) {
 	if body.CurrentThreadID != "thread-bootstrap-1" {
 		t.Fatalf("expected current thread id thread-bootstrap-1, got %q", body.CurrentThreadID)
 	}
+	if body.CurrentSessionID != "thread-bootstrap-1" {
+		t.Fatalf("expected current session id thread-bootstrap-1, got %q", body.CurrentSessionID)
+	}
 	if len(body.RecentThreads) != 1 {
 		t.Fatalf("expected 1 recent thread, got %+v", body.RecentThreads)
 	}
 	if !body.RecentThreads[0].Current {
 		t.Fatalf("expected first recent thread to be current")
+	}
+}
+
+func TestHTTPServerSessionsEndpoints(t *testing.T) {
+	server, _, _ := newTestHTTPServer()
+
+	submitReq := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/agent/envelope",
+		bytes.NewBufferString(`{"sid":"sid-sessions","rid":"rid-submit","seq":1,"ts":1700000000000,"type":"PROMPT_SUBMIT","payload":{"prompt":"Create hello world file","contextOptions":{}}}`),
+	)
+	submitRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(submitRec, submitReq)
+	if submitRec.Code != http.StatusOK {
+		t.Fatalf("submit response should be 200")
+	}
+
+	sessionsReq := httptest.NewRequest(http.MethodGet, "/v1/agent/sessions", nil)
+	sessionsRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(sessionsRec, sessionsReq)
+	if sessionsRec.Code != http.StatusOK {
+		t.Fatalf("sessions response should be 200")
+	}
+
+	var sessionsBody struct {
+		Sessions []SharedSessionSummary `json:"sessions"`
+	}
+	if err := json.Unmarshal(sessionsRec.Body.Bytes(), &sessionsBody); err != nil {
+		t.Fatalf("decode sessions: %v", err)
+	}
+	if len(sessionsBody.Sessions) != 1 {
+		t.Fatalf("expected 1 session, got %+v", sessionsBody.Sessions)
+	}
+	if sessionsBody.Sessions[0].Phase != "reviewing" {
+		t.Fatalf("expected session phase reviewing, got %+v", sessionsBody.Sessions[0])
+	}
+	if sessionsBody.Sessions[0].ControlSessionID != "sid-sessions" {
+		t.Fatalf("expected control session id sid-sessions, got %+v", sessionsBody.Sessions[0])
+	}
+
+	detailReq := httptest.NewRequest(http.MethodGet, "/v1/agent/sessions/"+sessionsBody.Sessions[0].ID, nil)
+	detailRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(detailRec, detailReq)
+	if detailRec.Code != http.StatusOK {
+		t.Fatalf("session detail response should be 200")
+	}
+
+	var detail SharedSessionDetail
+	if err := json.Unmarshal(detailRec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode session detail: %v", err)
+	}
+	if detail.OperationState.Phase != "reviewing" {
+		t.Fatalf("expected operation phase reviewing, got %+v", detail.OperationState)
+	}
+	if detail.OperationState.PatchSummary == "" {
+		t.Fatalf("expected patch summary to be populated, got %+v", detail.OperationState)
+	}
+	if detail.Session.ControlSessionID != "sid-sessions" {
+		t.Fatalf("expected detail control session id sid-sessions, got %+v", detail.Session)
+	}
+	if len(detail.Timeline) != 3 {
+		t.Fatalf("expected timeline length 3, got %+v", detail.Timeline)
 	}
 }

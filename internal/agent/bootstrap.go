@@ -20,6 +20,7 @@ type BootstrapResponse struct {
 	WorkspaceRoot    string                `json:"workspaceRoot,omitempty"`
 	Adapter          BootstrapAdapterView  `json:"adapter"`
 	CurrentThreadID  string                `json:"currentThreadId,omitempty"`
+	CurrentSessionID string                `json:"currentSessionId,omitempty"`
 	RecentThreads    []BootstrapThreadView `json:"recentThreads,omitempty"`
 }
 

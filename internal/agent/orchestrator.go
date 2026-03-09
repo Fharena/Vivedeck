@@ -12,9 +12,10 @@ import (
 )
 
 type Orchestrator struct {
-	adapter     WorkspaceAdapter
-	profiles    map[string]RunProfile
-	threadStore *ThreadStore
+	adapter      WorkspaceAdapter
+	profiles     map[string]RunProfile
+	threadStore  *ThreadStore
+	sessionStore *SessionStore
 
 	mu   sync.RWMutex
 	jobs map[string]*Job
@@ -30,11 +31,17 @@ func NewOrchestrator(adapter WorkspaceAdapter, profiles map[string]RunProfile, t
 		threadStore = NewThreadStore()
 	}
 
+	adapterInfo := BasicAdapterRuntimeInfo(adapter)
+	if provider, ok := adapter.(AdapterRuntimeInfoProvider); ok {
+		adapterInfo = provider.RuntimeInfo()
+	}
+
 	return &Orchestrator{
-		adapter:     adapter,
-		profiles:    profiles,
-		threadStore: threadStore,
-		jobs:        make(map[string]*Job),
+		adapter:      adapter,
+		profiles:     profiles,
+		threadStore:  threadStore,
+		sessionStore: NewSessionStore(threadStore, adapterInfo),
+		jobs:         make(map[string]*Job),
 	}
 }
 
@@ -63,6 +70,10 @@ func (o *Orchestrator) RunProfiles() []RunProfileDescriptor {
 
 func (o *Orchestrator) ThreadStore() *ThreadStore {
 	return o.threadStore
+}
+
+func (o *Orchestrator) SessionStore() *SessionStore {
+	return o.sessionStore
 }
 
 func (o *Orchestrator) handlePromptSubmit(ctx context.Context, env protocol.Envelope) ([]protocol.Envelope, error) {
