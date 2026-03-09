@@ -99,6 +99,52 @@ class AgentApi {
     );
   }
 
+  Future<Map<String, dynamic>> sessions(String baseUrl) async {
+    try {
+      final body = await _request(
+        method: 'GET',
+        baseUrl: baseUrl,
+        path: '/v1/agent/sessions',
+      );
+      return _normalizeSessionsResponse(body);
+    } on AgentApiException catch (error) {
+      if (!_shouldFallbackToThreads(error)) {
+        rethrow;
+      }
+
+      final body = await threads(baseUrl);
+      return {
+        ...body,
+        'threads': _cloneObjectList(body['threads']),
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> sessionDetail(
+    String baseUrl,
+    String sessionId,
+  ) async {
+    try {
+      final body = await _request(
+        method: 'GET',
+        baseUrl: baseUrl,
+        path: '/v1/agent/sessions/${Uri.encodeComponent(sessionId)}',
+      );
+      return _normalizeSessionDetail(body);
+    } on AgentApiException catch (error) {
+      if (!_shouldFallbackToThreads(error)) {
+        rethrow;
+      }
+
+      final body = await threadDetail(baseUrl, sessionId);
+      return {
+        ...body,
+        'thread': _objectValue(body['thread']),
+        'events': _cloneObjectList(body['events']),
+      };
+    }
+  }
+
   Future<Map<String, dynamic>> threads(String baseUrl) {
     return _request(
       method: 'GET',
@@ -111,7 +157,7 @@ class AgentApi {
     return _request(
       method: 'GET',
       baseUrl: baseUrl,
-      path: '/v1/agent/threads/$threadId',
+      path: '/v1/agent/threads/${Uri.encodeComponent(threadId)}',
     );
   }
 
@@ -129,6 +175,71 @@ class AgentApi {
 
   void dispose() {
     _client.close();
+  }
+
+  bool _shouldFallbackToThreads(AgentApiException error) {
+    return error.statusCode == 404 ||
+        error.statusCode == 405 ||
+        error.statusCode == 501;
+  }
+
+  Map<String, dynamic> _normalizeSessionsResponse(Map<String, dynamic> body) {
+    return {
+      ...body,
+      'threads': _cloneObjectList(body['sessions'])
+          .map(_normalizeSessionSummary)
+          .toList(),
+    };
+  }
+
+  Map<String, dynamic> _normalizeSessionDetail(Map<String, dynamic> body) {
+    final session = _objectValue(body['session']);
+    return {
+      ...body,
+      'thread': _normalizeSessionSummary(session),
+      'events': _cloneObjectList(body['timeline']),
+    };
+  }
+
+  Map<String, dynamic> _normalizeSessionSummary(Map<String, dynamic> session) {
+    final sessionId = _text(session['id']);
+    final threadId = _text(session['threadId']);
+    final controlSessionId = _text(session['controlSessionId']);
+    return {
+      'id': threadId.isNotEmpty ? threadId : sessionId,
+      'threadId': threadId,
+      'sessionId': controlSessionId.isNotEmpty ? controlSessionId : sessionId,
+      'title': _text(session['title']),
+      'state': _text(session['phase']),
+      'currentJobId': _text(session['currentJobId']),
+      'lastEventKind': _text(session['lastEventKind']),
+      'lastEventText': _text(session['lastEventText']),
+      'updatedAt': session['updatedAt'],
+    };
+  }
+
+  List<Map<String, dynamic>> _cloneObjectList(dynamic value) {
+    if (value is! List) {
+      return const [];
+    }
+    return value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  Map<String, dynamic> _objectValue(dynamic value) {
+    if (value is Map) {
+      return Map<String, dynamic>.from(value);
+    }
+    return <String, dynamic>{};
+  }
+
+  String _text(dynamic value) {
+    if (value == null) {
+      return '';
+    }
+    return value.toString();
   }
 
   Future<Map<String, dynamic>> _request({

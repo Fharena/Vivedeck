@@ -282,11 +282,12 @@ class DefaultMobileBootstrapController implements MobileBootstrapController {
       bootstrap.signalingBaseUrl || settings.signalingBaseUrl,
       effectiveHost,
     );
+    const currentThreadId = bootstrap.currentThreadId || bootstrap.currentSessionId;
     const bootstrapLink = buildMobileBootstrapLink({
       scheme: settings.scheme,
       agentBaseUrl: publicAgentBaseUrl,
       signalingBaseUrl: publicSignalingBaseUrl,
-      threadId: bootstrap.currentThreadId,
+      threadId: currentThreadId,
     });
 
     const warning = buildWarning(effectiveHost, publicAgentBaseUrl);
@@ -296,7 +297,7 @@ class DefaultMobileBootstrapController implements MobileBootstrapController {
       publicAgentBaseUrl,
       publicSignalingBaseUrl,
       workspaceRoot: bootstrap.workspaceRoot,
-      currentThreadId: bootstrap.currentThreadId,
+      currentThreadId,
       provider: bootstrap.adapter.provider,
       hostSource: settings.hostOverride ? "manual" : effectiveHost,
       warning,
@@ -483,3 +484,4 @@ function renderMobileBootstrapHtml(nonce: string): string {
 </body>
 </html>`;
 }
+

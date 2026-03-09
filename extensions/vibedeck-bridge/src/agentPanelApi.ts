@@ -65,6 +65,7 @@ export interface AgentPanelBootstrap {
   signalingBaseUrl: string;
   workspaceRoot: string;
   currentThreadId: string;
+  currentSessionId: string;
   adapter: AgentPanelBootstrapAdapter;
   recentThreads: AgentPanelBootstrapThread[];
 }
@@ -86,6 +87,8 @@ export interface AgentPanelApi {
   runtimeAdapter(baseUrl: string): Promise<AgentPanelAdapterRuntime>;
   bootstrap(baseUrl: string): Promise<AgentPanelBootstrap>;
   runProfiles(baseUrl: string): Promise<AgentPanelRunProfile[]>;
+  sessions(baseUrl: string): Promise<AgentPanelThreadSummary[]>;
+  sessionDetail(baseUrl: string, sessionId: string): Promise<AgentPanelThreadDetail>;
   threads(baseUrl: string): Promise<AgentPanelThreadSummary[]>;
   threadDetail(baseUrl: string, threadId: string): Promise<AgentPanelThreadDetail>;
   sendEnvelope(
@@ -135,6 +138,7 @@ class DefaultAgentPanelApi implements AgentPanelApi {
       signalingBaseUrl: text(body.signalingBaseUrl),
       workspaceRoot: text(body.workspaceRoot),
       currentThreadId: text(body.currentThreadId),
+      currentSessionId: text(body.currentSessionId),
       adapter: {
         name: text(adapterSource.name),
         mode: text(adapterSource.mode),
@@ -159,6 +163,36 @@ class DefaultAgentPanelApi implements AgentPanelApi {
       scope: text(item.scope),
       optional: item.optional === true,
     }));
+  }
+
+  async sessions(baseUrl: string): Promise<AgentPanelThreadSummary[]> {
+    try {
+      const body = await requestJson(baseUrl, "/v1/agent/sessions");
+      return objectArray(body.sessions).map((item) => normalizeSessionSummary(item));
+    } catch (error) {
+      if (!(error instanceof AgentPanelApiError) || !shouldFallbackToThreads(error)) {
+        throw error;
+      }
+      return await this.threads(baseUrl);
+    }
+  }
+
+  async sessionDetail(
+    baseUrl: string,
+    sessionId: string,
+  ): Promise<AgentPanelThreadDetail> {
+    try {
+      const body = await requestJson(
+        baseUrl,
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}`,
+      );
+      return normalizeSessionDetail(body);
+    } catch (error) {
+      if (!(error instanceof AgentPanelApiError) || !shouldFallbackToThreads(error)) {
+        throw error;
+      }
+      return await this.threadDetail(baseUrl, sessionId);
+    }
   }
 
   async threads(baseUrl: string): Promise<AgentPanelThreadSummary[]> {
@@ -195,17 +229,7 @@ class DefaultAgentPanelApi implements AgentPanelApi {
         lastEventText: text(threadSource.lastEventText),
         updatedAt: numberValue(threadSource.updatedAt),
       },
-      events: objectArray(body.events).map((item) => ({
-        id: text(item.id),
-        threadId: text(item.threadId),
-        jobId: text(item.jobId),
-        kind: text(item.kind),
-        role: text(item.role),
-        title: text(item.title),
-        body: text(item.body),
-        data: objectValue(item.data),
-        at: numberValue(item.at),
-      })),
+      events: objectArray(body.events).map((item) => normalizeThreadEvent(item)),
     };
   }
 
@@ -280,6 +304,48 @@ async function requestJson(
     }
     request.end();
   });
+}
+
+function normalizeSessionDetail(body: Record<string, unknown>): AgentPanelThreadDetail {
+  const sessionSource = objectValue(body.session);
+  return {
+    thread: normalizeSessionSummary(sessionSource),
+    events: objectArray(body.timeline).map((item) => normalizeThreadEvent(item)),
+  };
+}
+
+function normalizeSessionSummary(item: Record<string, unknown>): AgentPanelThreadSummary {
+  const sessionId = text(item.id);
+  const threadId = text(item.threadId) || sessionId;
+  const controlSessionId = text(item.controlSessionId);
+  return {
+    id: threadId,
+    title: text(item.title),
+    sessionId: controlSessionId || sessionId || "sid-vibedeck-panel",
+    state: text(item.phase),
+    currentJobId: text(item.currentJobId),
+    lastEventKind: text(item.lastEventKind),
+    lastEventText: text(item.lastEventText),
+    updatedAt: numberValue(item.updatedAt),
+  };
+}
+
+function normalizeThreadEvent(item: Record<string, unknown>): AgentPanelThreadEvent {
+  return {
+    id: text(item.id),
+    threadId: text(item.threadId),
+    jobId: text(item.jobId),
+    kind: text(item.kind),
+    role: text(item.role),
+    title: text(item.title),
+    body: text(item.body),
+    data: objectValue(item.data),
+    at: numberValue(item.at),
+  };
+}
+
+function shouldFallbackToThreads(error: AgentPanelApiError): boolean {
+  return error.statusCode === 404 || error.statusCode === 405 || error.statusCode === 501;
 }
 
 function normalizeBaseUrl(value: string): string {

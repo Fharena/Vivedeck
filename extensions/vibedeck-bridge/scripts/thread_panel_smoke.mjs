@@ -34,15 +34,21 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && url.pathname === "/v1/agent/run-profiles") {
     return json(res, 200, { profiles: state.runProfiles });
   }
+  if (req.method === "GET" && url.pathname === "/v1/agent/sessions") {
+    return json(res, 200, { sessions: state.threads.map((thread) => toSessionSummary(thread)) });
+  }
+  if (req.method === "GET" && url.pathname.startsWith("/v1/agent/sessions/")) {
+    const sessionId = decodeURIComponent(url.pathname.slice("/v1/agent/sessions/".length));
+    if (!state.details.has(sessionId)) {
+      return json(res, 404, { error: "session not found" });
+    }
+    return json(res, 200, toSessionDetail(state.details.get(sessionId)));
+  }
   if (req.method === "GET" && url.pathname === "/v1/agent/threads") {
-    return json(res, 200, { threads: state.threads });
+    return json(res, 404, { error: "legacy threads endpoint disabled in session smoke" });
   }
   if (req.method === "GET" && url.pathname.startsWith("/v1/agent/threads/")) {
-    const threadId = decodeURIComponent(url.pathname.slice("/v1/agent/threads/".length));
-    if (!state.details.has(threadId)) {
-      return json(res, 404, { error: "thread not found" });
-    }
-    return json(res, 200, state.details.get(threadId));
+    return json(res, 404, { error: "legacy threads endpoint disabled in session smoke" });
   }
   if (req.method === "POST" && url.pathname === "/v1/agent/envelope") {
     const body = await readJson(req);
@@ -349,6 +355,39 @@ function json(res, statusCode, body) {
   res.end(JSON.stringify(body));
 }
 
+
+function toSessionSummary(thread) {
+  return {
+    id: thread.id,
+    threadId: thread.id,
+    controlSessionId: thread.sessionId,
+    title: thread.title,
+    provider: "cursor",
+    workspaceRoot: state.adapter.workspaceRoot,
+    currentJobId: thread.currentJobId,
+    phase: thread.state,
+    lastEventKind: thread.lastEventKind,
+    lastEventText: thread.lastEventText,
+    updatedAt: thread.updatedAt,
+  };
+}
+
+function toSessionDetail(detail) {
+  return {
+    session: toSessionSummary(detail.thread),
+    liveState: {
+      participants: [],
+      composer: {},
+      focus: {},
+      activity: {},
+    },
+    operationState: {
+      currentJobId: detail.thread.currentJobId,
+      phase: detail.thread.state,
+    },
+    timeline: detail.events,
+  };
+}
 async function readJson(req) {
   let body = "";
   for await (const chunk of req) {

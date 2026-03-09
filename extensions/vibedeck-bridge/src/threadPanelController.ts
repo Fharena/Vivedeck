@@ -231,7 +231,7 @@ class DefaultThreadPanelController implements ThreadPanelController {
       const [adapter, runProfiles, threads] = await Promise.all([
         this.api.runtimeAdapter(settings.agentBaseUrl),
         this.api.runProfiles(settings.agentBaseUrl),
-        this.api.threads(settings.agentBaseUrl),
+        this.api.sessions(settings.agentBaseUrl),
       ]);
 
       if (this.selectedThreadId && !threads.some((thread) => thread.id === this.selectedThreadId)) {
@@ -243,7 +243,7 @@ class DefaultThreadPanelController implements ThreadPanelController {
       }
 
       const detail = this.selectedThreadId
-        ? await this.api.threadDetail(settings.agentBaseUrl, this.selectedThreadId)
+        ? await this.api.sessionDetail(settings.agentBaseUrl, this.selectedThreadId)
         : undefined;
       if (detail?.thread.id) {
         this.selectedThreadId = detail.thread.id;
