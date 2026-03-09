@@ -3,7 +3,7 @@ package agent
 import (
 	"time"
 
-	"github.com/Fharena/Vivedeck/internal/protocol"
+	"github.com/Fharena/VibeDeck/internal/protocol"
 )
 
 func controlEnvelopeTimeout(messageType protocol.MessageType) time.Duration {

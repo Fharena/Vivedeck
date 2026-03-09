@@ -10,7 +10,7 @@ import (
     "sync"
     "time"
 
-    "github.com/Fharena/Vivedeck/internal/protocol"
+    "github.com/Fharena/VibeDeck/internal/protocol"
     "github.com/gorilla/websocket"
 )
 

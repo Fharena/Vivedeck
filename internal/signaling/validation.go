@@ -4,7 +4,7 @@ import (
     "errors"
     "fmt"
 
-    "github.com/Fharena/Vivedeck/internal/protocol"
+    "github.com/Fharena/VibeDeck/internal/protocol"
 )
 
 func validateSignalEnvelope(sessionID string, role Role, env protocol.Envelope) error {

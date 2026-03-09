@@ -1,4 +1,4 @@
-module github.com/Fharena/Vivedeck
+module github.com/Fharena/VibeDeck
 
 go 1.23
 

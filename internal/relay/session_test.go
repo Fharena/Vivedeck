@@ -3,7 +3,7 @@ package relay
 import (
     "testing"
 
-    "github.com/Fharena/Vivedeck/internal/protocol"
+    "github.com/Fharena/VibeDeck/internal/protocol"
 )
 
 func TestSessionEmitsTermSummaryAfterDrops(t *testing.T) {

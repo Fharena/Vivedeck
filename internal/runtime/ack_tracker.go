@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Fharena/Vivedeck/internal/protocol"
+	"github.com/Fharena/VibeDeck/internal/protocol"
 )
 
 type AckTransport string

@@ -3,7 +3,7 @@ package signaling
 import (
     "testing"
 
-    "github.com/Fharena/Vivedeck/internal/protocol"
+    "github.com/Fharena/VibeDeck/internal/protocol"
 )
 
 func TestValidateSignalEnvelopeRoleDirection(t *testing.T) {

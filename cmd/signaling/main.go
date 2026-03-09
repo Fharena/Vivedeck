@@ -6,7 +6,7 @@ import (
     "os"
     "time"
 
-    "github.com/Fharena/Vivedeck/internal/signaling"
+    "github.com/Fharena/VibeDeck/internal/signaling"
 )
 
 func main() {

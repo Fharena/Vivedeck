@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Fharena/Vivedeck/internal/protocol"
+	"github.com/Fharena/VibeDeck/internal/protocol"
 )
 
 func TestOrchestratorPromptSubmitFlow(t *testing.T) {
