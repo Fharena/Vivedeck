@@ -440,7 +440,7 @@ class AppController extends ChangeNotifier {
       _api.runtimeMetrics(agentBaseUrl),
       _api.runtimeAdapter(agentBaseUrl),
       _api.runProfiles(agentBaseUrl),
-      _api.threads(agentBaseUrl),
+      _api.sessions(agentBaseUrl),
     ]);
 
     final p2p = Map<String, dynamic>.from(results[0] as Map);
@@ -499,8 +499,11 @@ class AppController extends ChangeNotifier {
     if (bootstrap.signalingBaseUrl.isNotEmpty) {
       signalingBaseUrl = bootstrap.signalingBaseUrl;
     }
-    if (currentThreadId.isEmpty && bootstrap.currentThreadId.isNotEmpty) {
-      currentThreadId = bootstrap.currentThreadId;
+    final bootstrapSelectionId = bootstrap.currentThreadId.isNotEmpty
+        ? bootstrap.currentThreadId
+        : bootstrap.currentSessionId;
+    if (currentThreadId.isEmpty && bootstrapSelectionId.isNotEmpty) {
+      currentThreadId = bootstrapSelectionId;
     }
   }
 
@@ -511,7 +514,7 @@ class AppController extends ChangeNotifier {
       return;
     }
 
-    final detail = await _api.threadDetail(agentBaseUrl, currentThreadId);
+    final detail = await _api.sessionDetail(agentBaseUrl, currentThreadId);
     currentThreadId = detail['thread'] is Map
         ? (detail['thread']['id']?.toString() ?? currentThreadId)
         : currentThreadId;
@@ -997,6 +1000,10 @@ class AppController extends ChangeNotifier {
     if (sessionId.isNotEmpty) {
       return sessionId;
     }
+    final sharedControlSessionId = selectedThreadSummary?.sessionId ?? '';
+    if (sharedControlSessionId.isNotEmpty) {
+      return sharedControlSessionId;
+    }
     return 'sid-mobile-demo';
   }
 
@@ -1247,6 +1254,7 @@ class BootstrapStatusView {
     this.signalingBaseUrl = '',
     this.workspaceRoot = '',
     this.currentThreadId = '',
+    this.currentSessionId = '',
     this.adapter = const BootstrapAdapterView(),
     this.recentThreads = const [],
   });
@@ -1255,6 +1263,7 @@ class BootstrapStatusView {
   final String signalingBaseUrl;
   final String workspaceRoot;
   final String currentThreadId;
+  final String currentSessionId;
   final BootstrapAdapterView adapter;
   final List<BootstrapThreadView> recentThreads;
 
@@ -1266,6 +1275,7 @@ class BootstrapStatusView {
       signalingBaseUrl: map['signalingBaseUrl']?.toString() ?? '',
       workspaceRoot: map['workspaceRoot']?.toString() ?? '',
       currentThreadId: map['currentThreadId']?.toString() ?? '',
+      currentSessionId: map['currentSessionId']?.toString() ?? '',
       adapter: adapterRaw is Map
           ? BootstrapAdapterView.fromMap(Map<String, dynamic>.from(adapterRaw))
           : const BootstrapAdapterView(),
@@ -1470,3 +1480,6 @@ class ThreadEventView {
     return '$hh:$mm:$ss';
   }
 }
+
+
+

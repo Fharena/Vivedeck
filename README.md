@@ -73,7 +73,7 @@ docs/
 
 - 모바일 앱은 `GET /v1/agent/bootstrap`, 최근 host 기억, `vibedeck://bootstrap` deep link를 사용해 URL 입력을 거의 제거하는 방향으로 유지
 - IDE 쪽은 extension 또는 배포 가능한 패키지로 최소 세팅만 요구하는 방향으로 유지
-- 현재는 `extensions/vibedeck-bridge` VSIX, extension local agent 자동 부트스트랩, shared thread history 영속화, 모바일 bootstrap 자동 세팅 v2(QR/deep link)까지 갖춘 상태입니다. 다음 단계는 LAN discovery와 provider 다변화입니다.
+- 현재는 `extensions/vibedeck-bridge` VSIX, extension local agent 자동 부트스트랩, shared thread history 영속화, 모바일 bootstrap 자동 세팅 v2(QR/deep link)까지 갖춘 상태입니다. 다음 큰 단계는 `모바일 + Cursor unified session` 완성입니다.
 
 ## 로컬 개발
 
@@ -300,8 +300,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\gui_extension_host_smoke.ps1 
 - `gui_extension_host_smoke.ps1`로 실제 Cursor GUI extension host + real `cursor-agent` 경로까지 검증했습니다.
 - built-in provider와 Go `cursor_agent_cli` adapter는 둘 다 ignored 파일을 기본 비동기화로 두고, 명시 allowlist와 일치하는 항목만 temp worktree snapshot에 복사합니다.
 - 외부 대시보드용 Prometheus scrape endpoint(`/metrics`)와 control handler latency/timeout 메트릭을 제공합니다.
-- 현재 남은 큰 과제는 모바일 LAN discovery, Cursor 세션/로그 가시성 고도화, Cursor 외 provider 확장, Windows cleanup warning 정리, timeout budget 운영 설정 외부화, 설치 산출물 릴리스 자동화입니다.
+- 현재 남은 큰 과제는 unified session foundation(session stream/presence/focus), Cursor session participation, 모바일 단일 Session UI 개편, Cursor 세션/로그 가시성 및 stalled recovery, 모바일 LAN discovery, Windows cleanup warning 정리, timeout budget 운영 설정 외부화, 설치 산출물 릴리스 자동화입니다.
 - Windows에서는 smoke 종료 직후 `agent.exe` 잠금 때문에 temp root cleanup warning이 남을 수 있습니다.
+- Cursor 외 provider 확장은 Cursor 기반 unified session 흐름을 충분히 완성한 뒤 진행할 계획입니다.
 
 ### VSIX 패키징
 
@@ -329,6 +330,7 @@ cursor --install-extension .\artifacts\vsix\vibedeck-bridge-0.1.0.vsix --force
 
 - 구현 계획: [docs/implementation-plan.md](./docs/implementation-plan.md)
 - 아키텍처: [docs/architecture.md](./docs/architecture.md)
+- Unified Session 계획: [docs/unified-session.md](./docs/unified-session.md)
 - 크리티컬 이슈 로그: [docs/critical-issues.md](./docs/critical-issues.md)
 - 해결 학습 가이드: [docs/troubleshooting-study.md](./docs/troubleshooting-study.md)
 - 온보딩 가이드: [docs/onboarding.md](./docs/onboarding.md)

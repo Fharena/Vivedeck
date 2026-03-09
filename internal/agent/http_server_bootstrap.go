@@ -34,6 +34,10 @@ func (s *HTTPServer) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 
 	recentThreads := make([]BootstrapThreadView, 0, len(threads))
 	currentThreadID := ""
+	currentSessionID := ""
+	if s.orchestrator != nil && s.orchestrator.SessionStore() != nil {
+		currentSessionID = s.orchestrator.SessionStore().CurrentSessionID()
+	}
 	for i, thread := range threads {
 		current := i == 0
 		if current {
@@ -57,8 +61,9 @@ func (s *HTTPServer) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 			Provider: inferProviderName(adapterInfo),
 			Ready:    adapterInfo.Ready,
 		},
-		CurrentThreadID: currentThreadID,
-		RecentThreads:   recentThreads,
+		CurrentThreadID:  currentThreadID,
+		CurrentSessionID: currentSessionID,
+		RecentThreads:    recentThreads,
 	}
 	writeJSON(w, http.StatusOK, response)
 }

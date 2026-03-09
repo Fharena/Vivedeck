@@ -63,6 +63,15 @@
 - `prompt_submitted`, `patch_ready`, `patch_applied`, `run_finished` 같은 이벤트를 누적
 - 모바일 앱과 향후 IDE 패널이 같은 API로 스레드를 조회
 
+### Unified Session 방향
+
+- 현재 `ThreadStore`는 durable timeline의 기반으로 유지하되, 다음 단계의 canonical object는 `shared session`으로 올린다.
+- shared session은 `thread history`만이 아니라 `live presence`, `draft`, `focus`, `current operation state`, `recovery state`를 함께 다룬다.
+- durable event와 ephemeral state를 분리해, 기록 복원과 실시간 협업을 각각 최적화한다.
+- 모바일과 IDE는 polling 중심이 아니라 session stream을 구독해 같은 세션 변화를 즉시 반영하는 방향으로 확장한다.
+- Cursor native chat/session 연동이 가능하면 메타데이터를 묶되, 제품의 소스 오브 트루스는 VibeDeck session으로 유지한다.
+- 자세한 단계 계획은 `docs/unified-session.md`를 따른다.
+
 ### IDE Provider 확장 전략
 
 - `WorkspaceAdapter`는 IDE 독립 인터페이스다.
