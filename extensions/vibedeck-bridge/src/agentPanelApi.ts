@@ -1,6 +1,8 @@
 import http from "node:http";
 import https from "node:https";
 
+import type { DisposableLike } from "@vibedeck/cursor-bridge";
+
 export interface AgentPanelAdapterRuntime {
   name: string;
   mode: string;
@@ -41,9 +43,60 @@ export interface AgentPanelThreadEvent {
   at: number;
 }
 
+export interface AgentPanelSessionParticipant {
+  participantId: string;
+  clientType: string;
+  displayName: string;
+  active: boolean;
+  lastSeenAt: number;
+}
+
+export interface AgentPanelSessionComposerState {
+  draftText: string;
+  isTyping: boolean;
+  updatedAt: number;
+}
+
+export interface AgentPanelSessionFocusState {
+  activeFilePath: string;
+  selection: string;
+  patchPath: string;
+  runErrorPath: string;
+  runErrorLine: number;
+  updatedAt: number;
+}
+
+export interface AgentPanelSessionActivityState {
+  phase: string;
+  summary: string;
+  updatedAt: number;
+}
+
+export interface AgentPanelSessionLiveState {
+  participants: AgentPanelSessionParticipant[];
+  composer: AgentPanelSessionComposerState;
+  focus: AgentPanelSessionFocusState;
+  activity: AgentPanelSessionActivityState;
+}
+
+export interface AgentPanelSessionOperationState {
+  currentJobId: string;
+  phase: string;
+  patchSummary: string;
+  patchResultStatus: string;
+  patchResultMessage: string;
+  runProfileId: string;
+  runStatus: string;
+  runSummary: string;
+  currentJobFiles: string[];
+  lastError: string;
+}
+
 export interface AgentPanelThreadDetail {
   thread: AgentPanelThreadSummary;
   events: AgentPanelThreadEvent[];
+  liveState: AgentPanelSessionLiveState;
+  operationState: AgentPanelSessionOperationState;
 }
 
 export interface AgentPanelBootstrapAdapter {
@@ -89,6 +142,17 @@ export interface AgentPanelApi {
   runProfiles(baseUrl: string): Promise<AgentPanelRunProfile[]>;
   sessions(baseUrl: string): Promise<AgentPanelThreadSummary[]>;
   sessionDetail(baseUrl: string, sessionId: string): Promise<AgentPanelThreadDetail>;
+  subscribeSession(
+    baseUrl: string,
+    sessionId: string,
+    onDetail: (detail: AgentPanelThreadDetail) => void,
+    onError?: (error: AgentPanelApiError) => void,
+  ): DisposableLike;
+  updateSessionLiveState(
+    baseUrl: string,
+    sessionId: string,
+    update: Record<string, unknown>,
+  ): Promise<AgentPanelThreadDetail>;
   threads(baseUrl: string): Promise<AgentPanelThreadSummary[]>;
   threadDetail(baseUrl: string, threadId: string): Promise<AgentPanelThreadDetail>;
   sendEnvelope(
@@ -195,6 +259,36 @@ class DefaultAgentPanelApi implements AgentPanelApi {
     }
   }
 
+  subscribeSession(
+    baseUrl: string,
+    sessionId: string,
+    onDetail: (detail: AgentPanelThreadDetail) => void,
+    onError?: (error: AgentPanelApiError) => void,
+  ): DisposableLike {
+    return requestSse(
+      baseUrl,
+      `/v1/agent/sessions/${encodeURIComponent(sessionId)}/stream`,
+      (body) => {
+        onDetail(normalizeSessionDetail(body));
+      },
+      onError,
+    );
+  }
+
+  async updateSessionLiveState(
+    baseUrl: string,
+    sessionId: string,
+    update: Record<string, unknown>,
+  ): Promise<AgentPanelThreadDetail> {
+    const body = await requestJson(
+      baseUrl,
+      `/v1/agent/sessions/${encodeURIComponent(sessionId)}/live`,
+      "POST",
+      update,
+    );
+    return normalizeSessionDetail(body);
+  }
+
   async threads(baseUrl: string): Promise<AgentPanelThreadSummary[]> {
     const body = await requestJson(baseUrl, "/v1/agent/threads");
     return objectArray(body.threads).map((item) => ({
@@ -230,6 +324,8 @@ class DefaultAgentPanelApi implements AgentPanelApi {
         updatedAt: numberValue(threadSource.updatedAt),
       },
       events: objectArray(body.events).map((item) => normalizeThreadEvent(item)),
+      liveState: emptyLiveState(),
+      operationState: emptyOperationState(),
     };
   }
 
@@ -306,11 +402,170 @@ async function requestJson(
   });
 }
 
+function requestSse(
+  baseUrl: string,
+  path: string,
+  onBody: (body: Record<string, unknown>) => void,
+  onError?: (error: AgentPanelApiError) => void,
+): DisposableLike {
+  const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+  const url = new URL(path, normalizedBaseUrl);
+  const transport = url.protocol === "https:" ? https : http;
+
+  let closed = false;
+  let responseRef: http.IncomingMessage | undefined;
+  const request = transport.request(
+    url,
+    {
+      method: "GET",
+      headers: {
+        Accept: "text/event-stream",
+      },
+    },
+    (response) => {
+      responseRef = response;
+      response.setEncoding("utf8");
+
+      const statusCode = response.statusCode ?? 0;
+      if (statusCode < 200 || statusCode >= 300) {
+        let raw = "";
+        response.on("data", (chunk) => {
+          raw += chunk;
+        });
+        response.on("end", () => {
+          if (closed) {
+            return;
+          }
+          const decoded = decodeJsonBody(raw);
+          const message =
+            typeof decoded.error === "string"
+              ? decoded.error
+              : JSON.stringify(decoded);
+          onError?.(
+            new AgentPanelApiError(statusCode, message || "session stream failed", decoded),
+          );
+        });
+        return;
+      }
+
+      let buffer = "";
+      response.on("data", (chunk) => {
+        if (closed) {
+          return;
+        }
+        buffer += chunk;
+        buffer = buffer.replace(/\r\n/g, "\n");
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary >= 0) {
+          const frame = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const decoded = decodeSseFrame(frame);
+          if (decoded) {
+            onBody(decoded);
+          }
+          boundary = buffer.indexOf("\n\n");
+        }
+      });
+      response.on("error", (error) => {
+        if (closed) {
+          return;
+        }
+        onError?.(new AgentPanelApiError(0, error.message));
+      });
+    },
+  );
+
+  request.on("error", (error) => {
+    if (closed) {
+      return;
+    }
+    onError?.(new AgentPanelApiError(0, error.message));
+  });
+  request.end();
+
+  return {
+    dispose() {
+      closed = true;
+      responseRef?.destroy();
+      request.destroy();
+    },
+  };
+}
+
+function decodeSseFrame(frame: string): Record<string, unknown> | null {
+  const dataLines: string[] = [];
+  for (const rawLine of frame.split("\n")) {
+    const line = rawLine.trimEnd();
+    if (!line || line.startsWith(":")) {
+      continue;
+    }
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5).trimStart());
+    }
+  }
+  if (dataLines.length === 0) {
+    return null;
+  }
+  return decodeJsonBody(dataLines.join("\n"));
+}
+
 function normalizeSessionDetail(body: Record<string, unknown>): AgentPanelThreadDetail {
   const sessionSource = objectValue(body.session);
   return {
     thread: normalizeSessionSummary(sessionSource),
     events: objectArray(body.timeline).map((item) => normalizeThreadEvent(item)),
+    liveState: normalizeLiveState(objectValue(body.liveState)),
+    operationState: normalizeOperationState(objectValue(body.operationState)),
+  };
+}
+
+function normalizeLiveState(value: Record<string, unknown>): AgentPanelSessionLiveState {
+  const composer = objectValue(value.composer);
+  const focus = objectValue(value.focus);
+  const activity = objectValue(value.activity);
+  return {
+    participants: objectArray(value.participants).map((item) => ({
+      participantId: text(item.participantId),
+      clientType: text(item.clientType),
+      displayName: text(item.displayName),
+      active: item.active === true,
+      lastSeenAt: numberValue(item.lastSeenAt),
+    })),
+    composer: {
+      draftText: text(composer.draftText),
+      isTyping: composer.isTyping === true,
+      updatedAt: numberValue(composer.updatedAt),
+    },
+    focus: {
+      activeFilePath: text(focus.activeFilePath),
+      selection: text(focus.selection),
+      patchPath: text(focus.patchPath),
+      runErrorPath: text(focus.runErrorPath),
+      runErrorLine: numberValue(focus.runErrorLine),
+      updatedAt: numberValue(focus.updatedAt),
+    },
+    activity: {
+      phase: text(activity.phase),
+      summary: text(activity.summary),
+      updatedAt: numberValue(activity.updatedAt),
+    },
+  };
+}
+
+function normalizeOperationState(
+  value: Record<string, unknown>,
+): AgentPanelSessionOperationState {
+  return {
+    currentJobId: text(value.currentJobId),
+    phase: text(value.phase),
+    patchSummary: text(value.patchSummary),
+    patchResultStatus: text(value.patchResultStatus),
+    patchResultMessage: text(value.patchResultMessage),
+    runProfileId: text(value.runProfileId),
+    runStatus: text(value.runStatus),
+    runSummary: text(value.runSummary),
+    currentJobFiles: stringArray(value.currentJobFiles),
+    lastError: text(value.lastError),
   };
 }
 
@@ -341,6 +596,37 @@ function normalizeThreadEvent(item: Record<string, unknown>): AgentPanelThreadEv
     body: text(item.body),
     data: objectValue(item.data),
     at: numberValue(item.at),
+  };
+}
+
+function emptyLiveState(): AgentPanelSessionLiveState {
+  return {
+    participants: [],
+    composer: { draftText: "", isTyping: false, updatedAt: 0 },
+    focus: {
+      activeFilePath: "",
+      selection: "",
+      patchPath: "",
+      runErrorPath: "",
+      runErrorLine: 0,
+      updatedAt: 0,
+    },
+    activity: { phase: "", summary: "", updatedAt: 0 },
+  };
+}
+
+function emptyOperationState(): AgentPanelSessionOperationState {
+  return {
+    currentJobId: "",
+    phase: "",
+    patchSummary: "",
+    patchResultStatus: "",
+    patchResultMessage: "",
+    runProfileId: "",
+    runStatus: "",
+    runSummary: "",
+    currentJobFiles: [],
+    lastError: "",
   };
 }
 

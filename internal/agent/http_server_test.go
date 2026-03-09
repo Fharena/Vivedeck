@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -468,5 +469,188 @@ func TestHTTPServerSessionsEndpoints(t *testing.T) {
 	}
 	if len(detail.Timeline) != 3 {
 		t.Fatalf("expected timeline length 3, got %+v", detail.Timeline)
+	}
+}
+
+func TestHTTPServerSessionLiveUpdateEndpoint(t *testing.T) {
+	server, _, _ := newTestHTTPServer()
+	sessionID := seedSharedSession(t, server, "sid-live-update", "Keep shared draft in sync")
+
+	liveBody := bytes.NewBufferString(`{"participant":{"participantId":"mobile-main","clientType":"mobile","displayName":"Pixel","active":true,"lastSeenAt":1700000000001},"composer":{"draftText":"cursor와 모바일 초안 공유","isTyping":true,"updatedAt":1700000000002},"focus":{"activeFilePath":"mobile/flutter_app/lib/screens/prompt_screen.dart","selection":"PromptScreen","updatedAt":1700000000003},"activity":{"phase":"composing","summary":"모바일에서 프롬프트 작성 중","updatedAt":1700000000004}}`)
+	liveReq := httptest.NewRequest(http.MethodPost, "/v1/agent/sessions/"+sessionID+"/live", liveBody)
+	liveRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(liveRec, liveReq)
+
+	if liveRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", liveRec.Code)
+	}
+
+	var detail SharedSessionDetail
+	if err := json.Unmarshal(liveRec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode live update response: %v", err)
+	}
+	if len(detail.LiveState.Participants) != 1 || detail.LiveState.Participants[0].ParticipantID != "mobile-main" {
+		t.Fatalf("expected live participant update, got %+v", detail.LiveState.Participants)
+	}
+	if detail.LiveState.Composer.DraftText != "cursor와 모바일 초안 공유" || !detail.LiveState.Composer.IsTyping {
+		t.Fatalf("expected composer update, got %+v", detail.LiveState.Composer)
+	}
+	if detail.LiveState.Focus.ActiveFilePath != "mobile/flutter_app/lib/screens/prompt_screen.dart" {
+		t.Fatalf("expected focus update, got %+v", detail.LiveState.Focus)
+	}
+	if detail.LiveState.Activity.Summary != "모바일에서 프롬프트 작성 중" {
+		t.Fatalf("expected activity update, got %+v", detail.LiveState.Activity)
+	}
+
+	clearBody := bytes.NewBufferString(`{"composer":{"draftText":"","isTyping":false,"updatedAt":0},"focus":{"activeFilePath":"","selection":"","patchPath":"","runErrorPath":"","runErrorLine":0,"updatedAt":0},"activity":{"phase":"","summary":"","updatedAt":0}}`)
+	clearReq := httptest.NewRequest(http.MethodPost, "/v1/agent/sessions/"+sessionID+"/live", clearBody)
+	clearRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(clearRec, clearReq)
+
+	if clearRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for clear update, got %d", clearRec.Code)
+	}
+	var clearedDetail SharedSessionDetail
+	if err := json.Unmarshal(clearRec.Body.Bytes(), &clearedDetail); err != nil {
+		t.Fatalf("decode cleared live update response: %v", err)
+	}
+	if clearedDetail.LiveState.Composer.DraftText != "" || clearedDetail.LiveState.Composer.IsTyping {
+		t.Fatalf("expected composer override to clear, got %+v", clearedDetail.LiveState.Composer)
+	}
+	if clearedDetail.LiveState.Focus.ActiveFilePath != "" || clearedDetail.LiveState.Focus.Selection != "" {
+		t.Fatalf("expected focus override to clear, got %+v", clearedDetail.LiveState.Focus)
+	}
+	if clearedDetail.LiveState.Activity.Phase != "" || clearedDetail.LiveState.Activity.Summary != "" {
+		t.Fatalf("expected activity override to clear, got %+v", clearedDetail.LiveState.Activity)
+	}
+}
+
+func TestHTTPServerSessionStreamEndpoint(t *testing.T) {
+	server, _, _ := newTestHTTPServer()
+	sessionID := seedSharedSession(t, server, "sid-live-stream", "Stream the shared session")
+
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	streamReq, err := http.NewRequestWithContext(ctx, http.MethodGet, httpServer.URL+"/v1/agent/sessions/"+sessionID+"/stream", nil)
+	if err != nil {
+		t.Fatalf("build stream request: %v", err)
+	}
+	streamResp, err := httpServer.Client().Do(streamReq)
+	if err != nil {
+		t.Fatalf("open stream: %v", err)
+	}
+	defer streamResp.Body.Close()
+
+	if streamResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", streamResp.StatusCode)
+	}
+	if !strings.HasPrefix(streamResp.Header.Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("expected text/event-stream content type, got %q", streamResp.Header.Get("Content-Type"))
+	}
+
+	reader := bufio.NewReader(streamResp.Body)
+	firstDetail := readNextSessionStreamEvent(t, reader)
+	if firstDetail.Session.ID != sessionID {
+		t.Fatalf("expected first streamed session %s, got %+v", sessionID, firstDetail.Session)
+	}
+	if firstDetail.OperationState.Phase != "reviewing" {
+		t.Fatalf("expected reviewing phase, got %+v", firstDetail.OperationState)
+	}
+
+	liveReq, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		httpServer.URL+"/v1/agent/sessions/"+sessionID+"/live",
+		bytes.NewBufferString(`{"participant":{"participantId":"cursor-panel","clientType":"cursor_panel","displayName":"Cursor Panel","active":true,"lastSeenAt":1700000000010},"composer":{"draftText":"streamed draft","isTyping":true,"updatedAt":1700000000011},"activity":{"phase":"reviewing","summary":"Cursor 패널에서 검토 중","updatedAt":1700000000012}}`),
+	)
+	if err != nil {
+		t.Fatalf("build live update request: %v", err)
+	}
+	liveReq.Header.Set("Content-Type", "application/json")
+	liveResp, err := httpServer.Client().Do(liveReq)
+	if err != nil {
+		t.Fatalf("post live update: %v", err)
+	}
+	liveResp.Body.Close()
+	if liveResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from live update, got %d", liveResp.StatusCode)
+	}
+
+	nextDetail := readNextSessionStreamEvent(t, reader)
+	if nextDetail.LiveState.Composer.DraftText != "streamed draft" || !nextDetail.LiveState.Composer.IsTyping {
+		t.Fatalf("expected streamed composer update, got %+v", nextDetail.LiveState.Composer)
+	}
+	if len(nextDetail.LiveState.Participants) == 0 || nextDetail.LiveState.Participants[0].ParticipantID != "cursor-panel" {
+		t.Fatalf("expected streamed participant update, got %+v", nextDetail.LiveState.Participants)
+	}
+	if nextDetail.LiveState.Activity.Summary != "Cursor 패널에서 검토 중" {
+		t.Fatalf("expected streamed activity update, got %+v", nextDetail.LiveState.Activity)
+	}
+}
+
+func seedSharedSession(t *testing.T, server *HTTPServer, sid string, prompt string) string {
+	t.Helper()
+
+	submitReq := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/agent/envelope",
+		bytes.NewBufferString(`{"sid":"`+sid+`","rid":"rid-seed","seq":1,"ts":1700000000000,"type":"PROMPT_SUBMIT","payload":{"prompt":"`+prompt+`","contextOptions":{}}}`),
+	)
+	submitRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(submitRec, submitReq)
+	if submitRec.Code != http.StatusOK {
+		t.Fatalf("submit response should be 200, got %d", submitRec.Code)
+	}
+
+	sessionsReq := httptest.NewRequest(http.MethodGet, "/v1/agent/sessions", nil)
+	sessionsRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(sessionsRec, sessionsReq)
+	if sessionsRec.Code != http.StatusOK {
+		t.Fatalf("sessions response should be 200, got %d", sessionsRec.Code)
+	}
+
+	var sessionsBody struct {
+		Sessions []SharedSessionSummary `json:"sessions"`
+	}
+	if err := json.Unmarshal(sessionsRec.Body.Bytes(), &sessionsBody); err != nil {
+		t.Fatalf("decode sessions response: %v", err)
+	}
+	if len(sessionsBody.Sessions) == 0 {
+		t.Fatalf("expected shared session to exist")
+	}
+	return sessionsBody.Sessions[0].ID
+}
+
+func readNextSessionStreamEvent(t *testing.T, reader *bufio.Reader) SharedSessionDetail {
+	t.Helper()
+
+	dataLines := make([]string, 0, 4)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read session stream event: %v", err)
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			if len(dataLines) == 0 {
+				continue
+			}
+
+			var detail SharedSessionDetail
+			if err := json.Unmarshal([]byte(strings.Join(dataLines, "\n")), &detail); err != nil {
+				t.Fatalf("decode session stream payload: %v", err)
+			}
+			return detail
+		}
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		if strings.HasPrefix(line, "data:") {
+			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+		}
 	}
 }

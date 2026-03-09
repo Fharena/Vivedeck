@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { createBridgeExtensionController } from "../dist/bridgeExtensionController.js";
 
+const streamClients = new Map();
+
 const state = {
   adapter: {
     name: "cursor_agent_cli",
@@ -37,6 +39,35 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && url.pathname === "/v1/agent/sessions") {
     return json(res, 200, { sessions: state.threads.map((thread) => toSessionSummary(thread)) });
   }
+  if (req.method === "GET" && url.pathname.startsWith("/v1/agent/sessions/") && url.pathname.endsWith("/stream")) {
+    const sessionId = decodeURIComponent(url.pathname.slice("/v1/agent/sessions/".length, -"/stream".length));
+    const detail = state.details.get(sessionId);
+    if (!detail) {
+      return json(res, 404, { error: "session not found" });
+    }
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    streamClients.set(res, sessionId);
+    writeSessionEvent(res, detail);
+    req.on("close", () => {
+      streamClients.delete(res);
+    });
+    return;
+  }
+  if (req.method === "POST" && url.pathname.startsWith("/v1/agent/sessions/") && url.pathname.endsWith("/live")) {
+    const sessionId = decodeURIComponent(url.pathname.slice("/v1/agent/sessions/".length, -"/live".length));
+    const detail = state.details.get(sessionId);
+    if (!detail) {
+      return json(res, 404, { error: "session not found" });
+    }
+    const body = await readJson(req);
+    updateLiveState(detail, body);
+    broadcastSession(detail);
+    return json(res, 200, toSessionDetail(detail));
+  }
   if (req.method === "GET" && url.pathname.startsWith("/v1/agent/sessions/")) {
     const sessionId = decodeURIComponent(url.pathname.slice("/v1/agent/sessions/".length));
     if (!state.details.has(sessionId)) {
@@ -67,6 +98,24 @@ const server = http.createServer(async (req, res) => {
           lastEventKind: "patch_ready",
           lastEventText: "notes.txt 변경 준비",
           updatedAt: Date.now(),
+        },
+        liveState: {
+          participants: [],
+          composer: { draftText: "", isTyping: false, updatedAt: 0 },
+          focus: { activeFilePath: "", selection: "", patchPath: "", runErrorPath: "", runErrorLine: 0, updatedAt: 0 },
+          activity: { phase: "reviewing", summary: "패널 smoke 세션 대기 중", updatedAt: Date.now() },
+        },
+        operationState: {
+          currentJobId: jobId,
+          phase: "reviewing",
+          patchSummary: "notes.txt 변경 준비",
+          patchResultStatus: "",
+          patchResultMessage: "",
+          runProfileId: "",
+          runStatus: "",
+          runSummary: "",
+          currentJobFiles: ["notes.txt"],
+          lastError: "",
         },
         events: [
           {
@@ -122,6 +171,9 @@ const server = http.createServer(async (req, res) => {
       const detail = state.details.get("thread_panel_smoke");
       detail.thread.state = "failed";
       detail.thread.lastEventKind = "patch_applied";
+      detail.operationState.phase = "waiting_input";
+      detail.operationState.patchResultStatus = "failed";
+      detail.operationState.patchResultMessage = "patch apply blocked for smoke";
       detail.thread.lastEventText = "패치 적용 실패";
       detail.thread.updatedAt = Date.now();
       detail.events.push({
@@ -148,6 +200,10 @@ const server = http.createServer(async (req, res) => {
       const detail = state.details.get("thread_panel_smoke");
       detail.thread.state = "passed";
       detail.thread.lastEventKind = "run_finished";
+      detail.operationState.phase = "waiting_input";
+      detail.operationState.runProfileId = body.payload?.profileId || "smoke";
+      detail.operationState.runStatus = "passed";
+      detail.operationState.runSummary = "smoke profile passed";
       detail.thread.lastEventText = "smoke profile passed";
       detail.thread.updatedAt = Date.now();
       detail.events.push({
@@ -307,6 +363,10 @@ try {
     },
   });
   await waitFor(() => (panelMessages.at(-1)?.state?.currentJobId || "") === "job_panel_smoke");
+  await waitFor(() => (panelMessages.at(-1)?.state?.live?.participants?.[0]?.participantId || "") === "cursor-panel");
+
+  await panelMessageHandler({ type: "update-draft", prompt: "shared smoke draft" });
+  await waitFor(() => (panelMessages.at(-1)?.state?.live?.composer?.draftText || "") === "shared smoke draft");
 
   await panelMessageHandler({ type: "apply-patch" });
   await waitFor(() => (panelMessages.at(-1)?.state?.derived?.patchResultStatus || "") === "failed");
@@ -330,12 +390,15 @@ try {
   assert.equal(latestStateMessage.state.derived.runStatus, "passed");
   assert.equal(latestStateMessage.state.derived.patchFiles[0].path, "notes.txt");
   assert.deepEqual(latestStateMessage.state.derived.currentJobFiles, ["notes.txt"]);
+  assert.equal(latestStateMessage.state.live.participants[0].participantId, "cursor-panel");
+  assert.equal(latestStateMessage.state.live.composer.draftText, "shared smoke draft");
   assert.equal(state.envelopes.map((item) => item.type).join(","), "PROMPT_SUBMIT,PATCH_APPLY,RUN_PROFILE,OPEN_LOCATION");
   assert.equal(state.openLocations.length, 1);
 
   console.log(JSON.stringify({
     agentBaseUrl,
     threadId: latestStateMessage.state.currentThread.id,
+    liveDraft: latestStateMessage.state.live.composer.draftText,
     runStatus: latestStateMessage.state.derived.runStatus,
     patchFiles: latestStateMessage.state.derived.patchFiles.map((item) => item.path),
     envelopeTypes: state.envelopes.map((item) => item.type),
@@ -375,18 +438,38 @@ function toSessionSummary(thread) {
 function toSessionDetail(detail) {
   return {
     session: toSessionSummary(detail.thread),
-    liveState: {
-      participants: [],
-      composer: {},
-      focus: {},
-      activity: {},
-    },
-    operationState: {
-      currentJobId: detail.thread.currentJobId,
-      phase: detail.thread.state,
-    },
+    liveState: detail.liveState,
+    operationState: detail.operationState,
     timeline: detail.events,
   };
+}
+
+function updateLiveState(detail, body) {
+  if (body.participant) {
+    detail.liveState.participants = [body.participant];
+  }
+  if (body.composer) {
+    detail.liveState.composer = body.composer;
+  }
+  if (body.focus) {
+    detail.liveState.focus = body.focus;
+  }
+  if (body.activity) {
+    detail.liveState.activity = body.activity;
+  }
+}
+
+function writeSessionEvent(res, detail) {
+  res.write(`event: session\ndata: ${JSON.stringify(toSessionDetail(detail))}\n\n`);
+}
+
+function broadcastSession(detail) {
+  for (const [res, sessionId] of streamClients.entries()) {
+    if (sessionId !== detail.thread.id) {
+      continue;
+    }
+    writeSessionEvent(res, detail);
+  }
 }
 async function readJson(req) {
   let body = "";

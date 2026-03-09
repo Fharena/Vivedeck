@@ -1,10 +1,12 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vibedeck_mobile/services/agent_api.dart';
 import 'package:vibedeck_mobile/state/app_controller.dart';
 
 void main() {
   test('loads shared session summaries and detail from session api', () async {
-    final controller = AppController(api: FakeSharedSessionAgentApi());
+    final api = FakeSharedSessionAgentApi();
+    final controller = AppController(api: api);
 
     addTearDown(controller.dispose);
 
@@ -18,9 +20,29 @@ void main() {
     expect(controller.patchFiles.single.path, 'lib/session.dart');
     expect(controller.threadEvents, hasLength(2));
   });
+
+  test('applies live session stream updates', () async {
+    final api = FakeSharedSessionAgentApi();
+    final controller = AppController(api: api);
+
+    addTearDown(controller.dispose);
+
+    await controller.refreshStatus();
+    api.pushLiveDraft('cursor live draft');
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(controller.liveDraftPreview, 'cursor live draft');
+    expect(controller.liveComposerTyping, isTrue);
+    expect(controller.liveParticipantCount, 1);
+    expect(controller.liveActivitySummary, 'Cursor에서 초안 작성 중');
+  });
 }
 
 class FakeSharedSessionAgentApi extends AgentApi {
+  final StreamController<Map<String, dynamic>> _streamController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  late Map<String, dynamic> _detail = _buildDetail();
+
   @override
   Future<Map<String, dynamic>> bootstrap(String baseUrl) async {
     return {
@@ -134,6 +156,79 @@ class FakeSharedSessionAgentApi extends AgentApi {
 
   @override
   Future<Map<String, dynamic>> sessionDetail(String baseUrl, String sessionId) async {
+    return _detail;
+  }
+
+  @override
+  Stream<Map<String, dynamic>> sessionStream(String baseUrl, String sessionId) {
+    return _streamController.stream;
+  }
+
+  @override
+  Future<Map<String, dynamic>> updateSessionLiveState(
+    String baseUrl,
+    String sessionId,
+    Map<String, dynamic> update,
+  ) async {
+    final liveState = Map<String, dynamic>.from(_detail['liveState'] as Map);
+    final participant = update['participant'];
+    if (participant is Map<String, dynamic>) {
+      liveState['participants'] = [participant];
+    }
+    final composer = update['composer'];
+    if (composer is Map<String, dynamic>) {
+      liveState['composer'] = composer;
+    }
+    final focus = update['focus'];
+    if (focus is Map<String, dynamic>) {
+      liveState['focus'] = focus;
+    }
+    final activity = update['activity'];
+    if (activity is Map<String, dynamic>) {
+      liveState['activity'] = activity;
+    }
+    _detail = {
+      ..._detail,
+      'liveState': liveState,
+    };
+    return _detail;
+  }
+
+  void pushLiveDraft(String draft) {
+    final updatedAt = DateTime(2026, 3, 9, 21, 11).millisecondsSinceEpoch;
+    _detail = {
+      ..._detail,
+      'liveState': {
+        'participants': [
+          {
+            'participantId': 'cursor-panel',
+            'clientType': 'cursor_panel',
+            'displayName': 'Cursor Panel',
+            'active': true,
+            'lastSeenAt': updatedAt,
+          },
+        ],
+        'composer': {
+          'draftText': draft,
+          'isTyping': true,
+          'updatedAt': updatedAt,
+        },
+        'focus': {
+          'activeFilePath': 'lib/session.dart',
+          'selection': 'buildSession',
+          'updatedAt': updatedAt,
+        },
+        'activity': {
+          'phase': 'composing',
+          'summary': 'Cursor에서 초안 작성 중',
+          'updatedAt': updatedAt,
+        },
+      },
+    };
+    _streamController.add(_detail);
+  }
+
+  Map<String, dynamic> _buildDetail() {
     final updatedAt = DateTime(2026, 3, 9, 21, 10).millisecondsSinceEpoch;
     return {
       'session': {
@@ -156,6 +251,18 @@ class FakeSharedSessionAgentApi extends AgentApi {
         'lastEventKind': 'patch_ready',
         'lastEventText': 'shared session patch ready',
         'updatedAt': updatedAt,
+      },
+      'liveState': {
+        'participants': const <Map<String, dynamic>>[],
+        'composer': const <String, dynamic>{},
+        'focus': const <String, dynamic>{},
+        'activity': const <String, dynamic>{},
+      },
+      'operationState': {
+        'currentJobId': 'job-shared-1',
+        'phase': 'reviewing',
+        'patchSummary': 'shared session patch ready',
+        'currentJobFiles': const ['lib/session.dart'],
       },
       'events': [
         {
@@ -211,5 +318,7 @@ class FakeSharedSessionAgentApi extends AgentApi {
   }
 
   @override
-  void dispose() {}
+  void dispose() {
+    unawaited(_streamController.close());
+  }
 }
