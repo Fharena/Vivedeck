@@ -18,6 +18,7 @@
   - Direct signaling + WebRTC 연결(페어링 claim -> signaling WS -> OFFER/ANSWER/ICE -> DataChannel)
   - `GET /v1/agent/bootstrap` 기반 자동 감지와 최근 host 복원
   - `vibedeck://bootstrap` deep link 수신 시 agent/signaling/thread 자동 적용
+  - `LAN에서 찾기`로 같은 Wi-Fi의 VibeDeck host를 UDP broadcast(`:42777`)로 탐지해 자동 적용
 
 ## 주요 연동 API
 
@@ -64,7 +65,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\flutter_safe.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\flutter_safe.ps1 -DeviceId <device-id>
 ```
 
-스크립트는 `%TEMP%\vibedeck_flutter_safe\repo` junction 경로를 만들고, 그 ASCII 경로에서 Flutter/Gradle을 실행한 뒤 자동 정리합니다.
+스크립트는 `%TEMP%\vibedeck_flutter_appdata`를 별도 `APPDATA`로 사용하고, 저장소를 `V:` subst 드라이브로 매핑한 뒤 그 ASCII 경로에서 Flutter/Gradle을 실행합니다.
 
 ## 테스트/분석
 
@@ -80,11 +81,13 @@ Windows에서 저장소 경로에 공백/한글이 포함되고 `flutter_webrtc`
 powershell -ExecutionPolicy Bypass -File .\scripts\flutter_test_safe.ps1
 ```
 
-스크립트는 `%TEMP%\vibedeck_flutter_safe\repo` junction 경로에서 테스트를 실행한 뒤 자동 정리합니다.
+스크립트는 `%TEMP%\vibedeck_flutter_appdata`를 별도 `APPDATA`로 사용하고, 저장소를 `V:` subst 드라이브로 매핑한 뒤 테스트를 실행합니다.
 
 ## 모바일 bootstrap 링크
 
 Cursor extension에서 `VibeDeck: Open Mobile Bootstrap`을 실행하면 QR/deep link 패널이 열리고, `VibeDeck: Copy Mobile Bootstrap Link`로 `vibedeck://bootstrap` 링크를 바로 복사할 수 있습니다. AndroidManifest에는 이 scheme/host가 등록되어 있어서 앱이 설치된 상태면 링크를 열 때 agent/signaling/thread가 자동 반영됩니다.
+
+상태 화면의 `LAN에서 찾기`는 UDP broadcast로 같은 Wi-Fi의 VibeDeck host를 찾아 bootstrap 정보를 받아옵니다. agent는 기본적으로 `:42777`에서 responder를 띄우며, 필요하면 `LAN_DISCOVERY_ADDR`로 포트를 바꿀 수 있습니다.
 
 ## 기본 연결 값
 
