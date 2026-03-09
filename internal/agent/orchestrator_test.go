@@ -121,6 +121,14 @@ func TestOrchestratorRunProfileFlow(t *testing.T) {
 		t.Fatalf("second response should be RUN_RESULT")
 	}
 
+	var runResult protocol.RunResultPayload
+	if err := runResponses[1].DecodePayload(&runResult); err != nil {
+		t.Fatalf("decode run result: %v", err)
+	}
+	if len(runResult.ChangedFiles) == 0 {
+		t.Fatalf("expected run result changed files, got %+v", runResult)
+	}
+
 	detail, ok := orch.ThreadStore().Get(promptAck.ThreadID)
 	if !ok {
 		t.Fatalf("thread detail should exist")

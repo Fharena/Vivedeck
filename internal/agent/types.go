@@ -61,13 +61,14 @@ type RunHandle struct {
 }
 
 type RunResult struct {
-	RunID     string                 `json:"runId"`
-	ProfileID string                 `json:"profileId"`
-	Status    string                 `json:"status"`
-	Summary   string                 `json:"summary"`
-	TopErrors []protocol.ParsedError `json:"topErrors,omitempty"`
-	Excerpt   string                 `json:"excerpt,omitempty"`
-	Output    string                 `json:"output,omitempty"`
+	RunID        string                 `json:"runId"`
+	ProfileID    string                 `json:"profileId"`
+	Status       string                 `json:"status"`
+	Summary      string                 `json:"summary"`
+	TopErrors    []protocol.ParsedError `json:"topErrors,omitempty"`
+	Excerpt      string                 `json:"excerpt,omitempty"`
+	Output       string                 `json:"output,omitempty"`
+	ChangedFiles []string               `json:"changedFiles,omitempty"`
 }
 
 type OpenLocationInput struct {
@@ -97,11 +98,12 @@ type WorkspaceAdapter interface {
 }
 
 type Job struct {
-	ID        string
-	ThreadID  string
-	SessionID string
-	TaskID    string
-	Prompt    string
-	State     string
-	CreatedAt time.Time
+	ID         string
+	ThreadID   string
+	SessionID  string
+	TaskID     string
+	Prompt     string
+	State      string
+	PatchFiles []string
+	CreatedAt  time.Time
 }

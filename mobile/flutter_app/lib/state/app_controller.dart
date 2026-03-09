@@ -60,6 +60,9 @@ class AppController extends ChangeNotifier {
   String runSummary = '';
   String runExcerpt = '';
   String runOutput = '';
+  UnmodifiableListView<String> get runChangedFiles =>
+      UnmodifiableListView(_runChangedFiles);
+  final List<String> _runChangedFiles = [];
   final List<String> topErrors = [];
 
   UnmodifiableListView<PatchFileView> get patchFiles =>
@@ -119,6 +122,48 @@ class AppController extends ChangeNotifier {
   }
 
   String get currentThreadState => selectedThreadSummary?.state ?? 'draft';
+
+  bool get canApplyAllPatch => !isLoading && _patchFiles.isNotEmpty;
+
+  List<String> get currentJobFiles {
+    if (_runChangedFiles.isNotEmpty) {
+      return List.unmodifiable(_runChangedFiles);
+    }
+    return List.unmodifiable(_currentPatchPaths());
+  }
+
+  String get patchAvailabilityReason {
+    if (_patchFiles.isNotEmpty) {
+      return '';
+    }
+    if (isLoading) {
+      return 'agent 응답을 처리하는 중입니다.';
+    }
+    if ((currentJobId ?? '').trim().isEmpty) {
+      return '먼저 대화 화면에서 프롬프트를 보내 작업을 시작하세요.';
+    }
+
+    final normalizedSummary = patchSummary.trim();
+    if (normalizedSummary.isNotEmpty) {
+      if (normalizedSummary.toLowerCase().contains('without code changes')) {
+        return '이 작업은 코드 변경 없이 완료되어 적용할 파일이 없습니다.';
+      }
+      return '적용할 파일 패치가 없습니다. $normalizedSummary';
+    }
+
+    final normalizedError = errorMessage?.trim() ?? '';
+    if (normalizedError.isNotEmpty) {
+      return '패치를 만들지 못했습니다. $normalizedError';
+    }
+
+    if (_threadEvents.any(
+      (event) => event.jobId == currentJobId && event.kind == 'prompt_accepted',
+    )) {
+      return '패치가 아직 준비되지 않았거나 코드 변경이 없었습니다.';
+    }
+
+    return '적용할 패치가 없습니다.';
+  }
 
   Future<void> initialize() async {
     if (_initialized) {
@@ -204,6 +249,7 @@ class AppController extends ChangeNotifier {
     runSummary = '';
     runExcerpt = '';
     runOutput = '';
+    _runChangedFiles.clear();
     topErrors.clear();
     _patchFiles.clear();
     _threadEvents.clear();
@@ -539,7 +585,17 @@ class AppController extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> _sendEnvelopeAndAckViaHttp(
     Map<String, dynamic> envelope,
   ) async {
-    final response = await _api.sendEnvelope(agentBaseUrl, envelope);
+    Map<String, dynamic> response;
+    try {
+      response = await _api.sendEnvelope(agentBaseUrl, envelope);
+    } on AgentApiException catch (e) {
+      final recovered = _extractResponsesFromBody(e.responseBody);
+      if (recovered.isNotEmpty) {
+        return recovered;
+      }
+      rethrow;
+    }
+
     final raw = response['responses'];
     if (raw is! List) {
       return const [];
@@ -590,6 +646,16 @@ class AppController extends ChangeNotifier {
       }
       final map = Map<String, dynamic>.from(payload);
 
+      if (type == 'CMD_ACK') {
+        if (map['accepted'] != true) {
+          final message = map['message']?.toString().trim() ?? '';
+          if (message.isNotEmpty) {
+            errorMessage = message;
+          }
+        }
+        continue;
+      }
+
       if (type == 'PROMPT_ACK') {
         currentThreadId = map['threadId']?.toString() ?? currentThreadId;
         currentJobId = map['jobId']?.toString();
@@ -612,6 +678,12 @@ class AppController extends ChangeNotifier {
         runSummary = map['summary']?.toString() ?? '';
         runExcerpt = map['excerpt']?.toString() ?? '';
         runOutput = map['output']?.toString() ?? runExcerpt;
+        _runChangedFiles
+          ..clear()
+          ..addAll(_parseStringList(map['changedFiles']));
+        if (_runChangedFiles.isEmpty) {
+          _runChangedFiles.addAll(_currentPatchPaths());
+        }
         topErrors
           ..clear()
           ..addAll(_parseTopErrors(map['topErrors']));
@@ -630,6 +702,7 @@ class AppController extends ChangeNotifier {
     runSummary = '';
     runExcerpt = '';
     runOutput = '';
+    _runChangedFiles.clear();
     topErrors.clear();
 
     for (final event in _threadEvents) {
@@ -656,10 +729,17 @@ class AppController extends ChangeNotifier {
         runSummary = event.data['summary']?.toString() ?? event.body;
         runExcerpt = event.data['excerpt']?.toString() ?? runExcerpt;
         runOutput = event.data['output']?.toString() ?? runOutput;
+        _runChangedFiles
+          ..clear()
+          ..addAll(_parseStringList(event.data['changedFiles']));
         topErrors
           ..clear()
           ..addAll(_parseTopErrors(event.data['topErrors']));
       }
+    }
+
+    if (_runChangedFiles.isEmpty) {
+      _runChangedFiles.addAll(_currentPatchPaths());
     }
   }
 
@@ -786,6 +866,38 @@ class AppController extends ChangeNotifier {
     }).toList();
   }
 
+  List<String> _parseStringList(dynamic raw) {
+    if (raw is! List) {
+      return const [];
+    }
+
+    final seen = <String>{};
+    final values = <String>[];
+    for (final item in raw) {
+      final value = item?.toString().trim() ?? '';
+      if (value.isEmpty || seen.contains(value)) {
+        continue;
+      }
+      seen.add(value);
+      values.add(value);
+    }
+    return values;
+  }
+
+  List<String> _currentPatchPaths() {
+    final seen = <String>{};
+    final values = <String>[];
+    for (final file in _patchFiles) {
+      final value = file.path.trim();
+      if (value.isEmpty || seen.contains(value)) {
+        continue;
+      }
+      seen.add(value);
+      values.add(value);
+    }
+    return values;
+  }
+
   Future<void> _restoreSettings() async {
     final snapshot = await _settingsStore.load();
     if (snapshot.agentBaseUrl.trim().isNotEmpty) {
@@ -798,6 +910,22 @@ class AppController extends ChangeNotifier {
       ..clear()
       ..addAll(_sortedRecentHosts(snapshot.recentHosts));
     notifyListeners();
+  }
+
+  List<Map<String, dynamic>> _extractResponsesFromBody(
+    Map<String, dynamic>? body,
+  ) {
+    if (body == null) {
+      return const [];
+    }
+    final raw = body['responses'];
+    if (raw is! List) {
+      return const [];
+    }
+    return raw
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
   }
 
   Future<void> _persistSettings() {
