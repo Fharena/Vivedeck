@@ -77,6 +77,9 @@ class AppController extends ChangeNotifier {
       UnmodifiableListView(_threadEvents);
   final List<ThreadEventView> _threadEvents = [];
 
+  SessionLiveView liveSession = const SessionLiveView();
+  SessionOperationView sessionOperation = const SessionOperationView();
+
   UnmodifiableListView<RunProfileView> get runProfiles =>
       UnmodifiableListView(_runProfiles);
   final List<RunProfileView> _runProfiles = [];
@@ -97,6 +100,12 @@ class AppController extends ChangeNotifier {
   StreamSubscription<DirectSignalEvent>? _directEventSub;
   StreamSubscription<Map<String, dynamic>>? _directEnvelopeSub;
   StreamSubscription<String>? _directErrorSub;
+  StreamSubscription<Map<String, dynamic>>? _sessionStreamSub;
+
+  Timer? _sessionPresenceTimer;
+  Timer? _promptDraftSyncTimer;
+  String _sessionStreamThreadId = '';
+  String _sessionStreamBaseUrl = '';
 
   int _seq = 1;
 
@@ -122,6 +131,45 @@ class AppController extends ChangeNotifier {
   }
 
   String get currentThreadState => selectedThreadSummary?.state ?? 'draft';
+  String get currentSessionPhase =>
+      sessionOperation.phase.isNotEmpty ? sessionOperation.phase : currentThreadState;
+  int get liveParticipantCount =>
+      liveSession.participants.where((participant) => participant.active).length;
+  String get liveParticipantSummary {
+    if (liveSession.participants.isEmpty) {
+      return '참여자 없음';
+    }
+    return '$liveParticipantCount명 연결';
+  }
+
+  String get liveActivitySummary {
+    if (liveSession.activity.summary.isNotEmpty) {
+      return liveSession.activity.summary;
+    }
+    if (currentThreadId.isEmpty) {
+      return '아직 연결된 세션이 없습니다.';
+    }
+    return '모바일과 Cursor가 같은 세션을 보고 있습니다.';
+  }
+
+  String get liveFocusSummary {
+    final focus = liveSession.focus;
+    final candidates = <String>[
+      focus.activeFilePath,
+      focus.patchPath,
+      focus.runErrorPath,
+      focus.selection,
+    ];
+    for (final candidate in candidates) {
+      if (candidate.trim().isNotEmpty) {
+        return candidate.trim();
+      }
+    }
+    return '포커스 없음';
+  }
+
+  String get liveDraftPreview => liveSession.composer.draftText;
+  bool get liveComposerTyping => liveSession.composer.isTyping;
 
   bool get canApplyAllPatch => !isLoading && _patchFiles.isNotEmpty;
 
@@ -249,10 +297,14 @@ class AppController extends ChangeNotifier {
     runSummary = '';
     runExcerpt = '';
     runOutput = '';
+    liveSession = const SessionLiveView();
+    sessionOperation = const SessionOperationView();
     _runChangedFiles.clear();
     topErrors.clear();
     _patchFiles.clear();
     _threadEvents.clear();
+    _promptDraftSyncTimer?.cancel();
+    unawaited(_stopSessionStream());
     notifyListeners();
   }
 
@@ -511,10 +563,40 @@ class AppController extends ChangeNotifier {
     if (currentThreadId.isEmpty) {
       currentJobId = null;
       _threadEvents.clear();
+      liveSession = const SessionLiveView();
+      sessionOperation = const SessionOperationView();
+      await _stopSessionStream();
       return;
     }
 
     final detail = await _api.sessionDetail(agentBaseUrl, currentThreadId);
+    _applySessionDetail(detail);
+    await _ensureSessionStream();
+  }
+
+  void updatePromptDraft(String value) {
+    promptDraft = value;
+    notifyListeners();
+
+    _promptDraftSyncTimer?.cancel();
+    if (currentThreadId.isEmpty) {
+      return;
+    }
+
+    _promptDraftSyncTimer = Timer(const Duration(milliseconds: 250), () {
+      unawaited(
+        _publishSessionLiveState(
+          composer: {
+            'draftText': value,
+            'isTyping': value.trim().isNotEmpty,
+            'updatedAt': DateTime.now().millisecondsSinceEpoch,
+          },
+        ),
+      );
+    });
+  }
+
+  void _applySessionDetail(Map<String, dynamic> detail) {
     currentThreadId = detail['thread'] is Map
         ? (detail['thread']['id']?.toString() ?? currentThreadId)
         : currentThreadId;
@@ -528,7 +610,165 @@ class AppController extends ChangeNotifier {
       currentJobId = thread.currentJobId.isEmpty ? currentJobId : thread.currentJobId;
     }
 
+    liveSession = detail['liveState'] is Map
+        ? SessionLiveView.fromMap(Map<String, dynamic>.from(detail['liveState'] as Map))
+        : const SessionLiveView();
+    sessionOperation = detail['operationState'] is Map
+        ? SessionOperationView.fromMap(
+            Map<String, dynamic>.from(detail['operationState'] as Map),
+          )
+        : const SessionOperationView();
+
     _syncDerivedStateFromThreadEvents();
+    if (sessionOperation.currentJobId.isNotEmpty) {
+      currentJobId = sessionOperation.currentJobId;
+    }
+    if (sessionOperation.patchSummary.isNotEmpty && patchSummary.isEmpty) {
+      patchSummary = sessionOperation.patchSummary;
+    }
+    if (sessionOperation.patchResultStatus.isNotEmpty) {
+      patchResultStatus = sessionOperation.patchResultStatus;
+    }
+    if (sessionOperation.patchResultMessage.isNotEmpty) {
+      patchResultMessage = sessionOperation.patchResultMessage;
+    }
+    if (sessionOperation.runStatus.isNotEmpty) {
+      runStatus = sessionOperation.runStatus;
+    }
+    if (sessionOperation.runSummary.isNotEmpty) {
+      runSummary = sessionOperation.runSummary;
+    }
+    if (_runChangedFiles.isEmpty && sessionOperation.currentJobFiles.isNotEmpty) {
+      _runChangedFiles
+        ..clear()
+        ..addAll(sessionOperation.currentJobFiles);
+    }
+  }
+
+  Future<void> _ensureSessionStream() async {
+    if (currentThreadId.isEmpty) {
+      await _stopSessionStream();
+      return;
+    }
+    if (_sessionStreamSub != null &&
+        _sessionStreamThreadId == currentThreadId &&
+        _sessionStreamBaseUrl == agentBaseUrl) {
+      return;
+    }
+
+    await _stopSessionStream();
+    _sessionStreamThreadId = currentThreadId;
+    _sessionStreamBaseUrl = agentBaseUrl;
+    _sessionStreamSub = _api.sessionStream(agentBaseUrl, currentThreadId).listen(
+      (detail) {
+        _applySessionDetail(detail);
+        notifyListeners();
+      },
+      onError: (_) {},
+    );
+
+    await _publishSessionPresence();
+    _sessionPresenceTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+      unawaited(_publishSessionPresence());
+    });
+  }
+
+  Future<void> _stopSessionStream() async {
+    _promptDraftSyncTimer?.cancel();
+    _promptDraftSyncTimer = null;
+    _sessionPresenceTimer?.cancel();
+    _sessionPresenceTimer = null;
+    await _sessionStreamSub?.cancel();
+    _sessionStreamSub = null;
+    _sessionStreamThreadId = '';
+    _sessionStreamBaseUrl = '';
+  }
+
+  Future<void> _publishSessionPresence() {
+    return _publishSessionLiveState();
+  }
+
+  Future<void> _publishSessionLiveState({Map<String, dynamic>? composer}) async {
+    if (currentThreadId.isEmpty) {
+      return;
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final update = <String, dynamic>{
+      'participant': {
+        'participantId': _mobileParticipantId(),
+        'clientType': 'mobile',
+        'displayName': 'VibeDeck Mobile',
+        'active': true,
+        'lastSeenAt': now,
+      },
+      'activity': {
+        'phase': currentSessionPhase,
+        'summary': _liveActivitySummaryForPublish(),
+        'updatedAt': now,
+      },
+    };
+
+    final focus = _buildMobileFocus(now);
+    if (focus.isNotEmpty) {
+      update['focus'] = focus;
+    }
+    if (composer != null) {
+      update['composer'] = composer;
+    }
+
+    final detail = await _api.updateSessionLiveState(
+      agentBaseUrl,
+      currentThreadId,
+      update,
+    );
+    _applySessionDetail(detail);
+    notifyListeners();
+  }
+
+  Map<String, dynamic> _buildMobileFocus(int now) {
+    final focus = <String, dynamic>{};
+    if (_patchFiles.isNotEmpty) {
+      focus['patchPath'] = _patchFiles.first.path;
+    }
+    if (topErrors.isNotEmpty) {
+      final first = topErrors.first;
+      final colonIndex = first.indexOf(':');
+      if (colonIndex > 0) {
+        focus['runErrorPath'] = first.substring(0, colonIndex);
+      }
+    }
+    if (focus.isNotEmpty) {
+      focus['updatedAt'] = now;
+    }
+    return focus;
+  }
+
+  String _liveActivitySummaryForPublish() {
+    if (isLoading && activity.isNotEmpty) {
+      return '모바일에서 $activity 중';
+    }
+    if (promptDraft.trim().isNotEmpty) {
+      return '모바일에서 프롬프트 작성 중';
+    }
+    if (_patchFiles.isNotEmpty) {
+      return '모바일에서 패치 검토 중';
+    }
+    if (runStatus.trim().isNotEmpty) {
+      return '모바일에서 실행 결과 확인 중';
+    }
+    return '모바일에서 세션을 보고 있습니다.';
+  }
+
+  String _mobileParticipantId() {
+    if (directDeviceKey.trim().isNotEmpty) {
+      return 'mobile:$directDeviceKey';
+    }
+    final controlSid = selectedThreadSummary?.sessionId ?? '';
+    if (controlSid.trim().isNotEmpty) {
+      return 'mobile:$controlSid';
+    }
+    return 'mobile:app';
   }
 
   Future<List<Map<String, dynamic>>> _sendEnvelopeAndAck(
@@ -1127,6 +1367,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     unawaited(_closeDirectSignalingSession());
+    unawaited(_stopSessionStream());
     _api.dispose();
     super.dispose();
   }
@@ -1483,3 +1724,181 @@ class ThreadEventView {
 
 
 
+
+class SessionParticipantView {
+  const SessionParticipantView({
+    required this.participantId,
+    required this.clientType,
+    required this.displayName,
+    required this.active,
+    required this.lastSeenAtMillis,
+  });
+
+  final String participantId;
+  final String clientType;
+  final String displayName;
+  final bool active;
+  final int lastSeenAtMillis;
+
+  factory SessionParticipantView.fromMap(Map<String, dynamic> map) {
+    return SessionParticipantView(
+      participantId: map['participantId']?.toString() ?? '',
+      clientType: map['clientType']?.toString() ?? '',
+      displayName: map['displayName']?.toString() ?? '',
+      active: map['active'] == true,
+      lastSeenAtMillis: map['lastSeenAt'] is num
+          ? (map['lastSeenAt'] as num).toInt()
+          : int.tryParse(map['lastSeenAt']?.toString() ?? '') ?? 0,
+    );
+  }
+}
+
+class SessionComposerView {
+  const SessionComposerView({
+    this.draftText = '',
+    this.isTyping = false,
+    this.updatedAtMillis = 0,
+  });
+
+  final String draftText;
+  final bool isTyping;
+  final int updatedAtMillis;
+
+  factory SessionComposerView.fromMap(Map<String, dynamic> map) {
+    return SessionComposerView(
+      draftText: map['draftText']?.toString() ?? '',
+      isTyping: map['isTyping'] == true,
+      updatedAtMillis: map['updatedAt'] is num
+          ? (map['updatedAt'] as num).toInt()
+          : int.tryParse(map['updatedAt']?.toString() ?? '') ?? 0,
+    );
+  }
+}
+
+class SessionFocusView {
+  const SessionFocusView({
+    this.activeFilePath = '',
+    this.selection = '',
+    this.patchPath = '',
+    this.runErrorPath = '',
+    this.runErrorLine = 0,
+    this.updatedAtMillis = 0,
+  });
+
+  final String activeFilePath;
+  final String selection;
+  final String patchPath;
+  final String runErrorPath;
+  final int runErrorLine;
+  final int updatedAtMillis;
+
+  factory SessionFocusView.fromMap(Map<String, dynamic> map) {
+    return SessionFocusView(
+      activeFilePath: map['activeFilePath']?.toString() ?? '',
+      selection: map['selection']?.toString() ?? '',
+      patchPath: map['patchPath']?.toString() ?? '',
+      runErrorPath: map['runErrorPath']?.toString() ?? '',
+      runErrorLine: map['runErrorLine'] is num
+          ? (map['runErrorLine'] as num).toInt()
+          : int.tryParse(map['runErrorLine']?.toString() ?? '') ?? 0,
+      updatedAtMillis: map['updatedAt'] is num
+          ? (map['updatedAt'] as num).toInt()
+          : int.tryParse(map['updatedAt']?.toString() ?? '') ?? 0,
+    );
+  }
+}
+
+class SessionActivityView {
+  const SessionActivityView({
+    this.phase = '',
+    this.summary = '',
+    this.updatedAtMillis = 0,
+  });
+
+  final String phase;
+  final String summary;
+  final int updatedAtMillis;
+
+  factory SessionActivityView.fromMap(Map<String, dynamic> map) {
+    return SessionActivityView(
+      phase: map['phase']?.toString() ?? '',
+      summary: map['summary']?.toString() ?? '',
+      updatedAtMillis: map['updatedAt'] is num
+          ? (map['updatedAt'] as num).toInt()
+          : int.tryParse(map['updatedAt']?.toString() ?? '') ?? 0,
+    );
+  }
+}
+
+class SessionLiveView {
+  const SessionLiveView({
+    this.participants = const [],
+    this.composer = const SessionComposerView(),
+    this.focus = const SessionFocusView(),
+    this.activity = const SessionActivityView(),
+  });
+
+  final List<SessionParticipantView> participants;
+  final SessionComposerView composer;
+  final SessionFocusView focus;
+  final SessionActivityView activity;
+
+  factory SessionLiveView.fromMap(Map<String, dynamic> map) {
+    final participantsRaw = map['participants'];
+    return SessionLiveView(
+      participants: participantsRaw is List
+          ? participantsRaw
+                .whereType<Map>()
+                .map((item) => SessionParticipantView.fromMap(Map<String, dynamic>.from(item)))
+                .toList()
+          : const [],
+      composer: map['composer'] is Map
+          ? SessionComposerView.fromMap(Map<String, dynamic>.from(map['composer'] as Map))
+          : const SessionComposerView(),
+      focus: map['focus'] is Map
+          ? SessionFocusView.fromMap(Map<String, dynamic>.from(map['focus'] as Map))
+          : const SessionFocusView(),
+      activity: map['activity'] is Map
+          ? SessionActivityView.fromMap(Map<String, dynamic>.from(map['activity'] as Map))
+          : const SessionActivityView(),
+    );
+  }
+}
+
+class SessionOperationView {
+  const SessionOperationView({
+    this.currentJobId = '',
+    this.phase = '',
+    this.patchSummary = '',
+    this.patchResultStatus = '',
+    this.patchResultMessage = '',
+    this.runStatus = '',
+    this.runSummary = '',
+    this.currentJobFiles = const [],
+  });
+
+  final String currentJobId;
+  final String phase;
+  final String patchSummary;
+  final String patchResultStatus;
+  final String patchResultMessage;
+  final String runStatus;
+  final String runSummary;
+  final List<String> currentJobFiles;
+
+  factory SessionOperationView.fromMap(Map<String, dynamic> map) {
+    final filesRaw = map['currentJobFiles'];
+    return SessionOperationView(
+      currentJobId: map['currentJobId']?.toString() ?? '',
+      phase: map['phase']?.toString() ?? '',
+      patchSummary: map['patchSummary']?.toString() ?? '',
+      patchResultStatus: map['patchResultStatus']?.toString() ?? '',
+      patchResultMessage: map['patchResultMessage']?.toString() ?? '',
+      runStatus: map['runStatus']?.toString() ?? '',
+      runSummary: map['runSummary']?.toString() ?? '',
+      currentJobFiles: filesRaw is List
+          ? filesRaw.map((item) => item.toString()).where((item) => item.isNotEmpty).toList()
+          : const [],
+    );
+  }
+}

@@ -50,7 +50,7 @@ func (s *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("/v1/agent/threads", s.handleThreads)
 	mux.HandleFunc("/v1/agent/threads/", s.handleThreadDetail)
 	mux.HandleFunc("/v1/agent/sessions", s.handleSessions)
-	mux.HandleFunc("/v1/agent/sessions/", s.handleSessionDetail)
+	mux.HandleFunc("/v1/agent/sessions/", s.handleSessionPath)
 	mux.HandleFunc("/v1/agent/p2p/start", s.handleP2PStart)
 	mux.HandleFunc("/v1/agent/p2p/status", s.handleP2PStatus)
 	mux.HandleFunc("/v1/agent/p2p/stop", s.handleP2PStop)

@@ -142,3 +142,43 @@ func TestSessionStoreMergesLiveOverrides(t *testing.T) {
 		t.Fatalf("expected focus override, got %+v", detail.LiveState.Focus)
 	}
 }
+
+func TestSessionStoreLiveOverridesCanClearFields(t *testing.T) {
+	threadStore := NewThreadStore()
+	threadStore.EnsureThread("thread-clear", "sid-clear", "Clear override test")
+
+	store := NewSessionStore(threadStore, AdapterRuntimeInfo{})
+	store.UpdateComposer("thread-clear", SessionComposerState{
+		DraftText: "temporary draft",
+		IsTyping:  true,
+		UpdatedAt: 201,
+	})
+	store.UpdateFocus("thread-clear", SessionFocusState{
+		ActiveFilePath: "lib/main.dart",
+		Selection:      "build",
+		UpdatedAt:      202,
+	})
+	store.UpdateActivity("thread-clear", SessionActivityState{
+		Phase:     "reviewing",
+		Summary:   "Cursor가 검토 중",
+		UpdatedAt: 203,
+	})
+
+	store.UpdateComposer("thread-clear", SessionComposerState{})
+	store.UpdateFocus("thread-clear", SessionFocusState{})
+	store.UpdateActivity("thread-clear", SessionActivityState{})
+
+	detail, ok := store.Get("thread-clear")
+	if !ok {
+		t.Fatalf("expected session detail to exist")
+	}
+	if detail.LiveState.Composer.DraftText != "" || detail.LiveState.Composer.IsTyping {
+		t.Fatalf("expected composer override to clear, got %+v", detail.LiveState.Composer)
+	}
+	if detail.LiveState.Focus.ActiveFilePath != "" || detail.LiveState.Focus.Selection != "" {
+		t.Fatalf("expected focus override to clear, got %+v", detail.LiveState.Focus)
+	}
+	if detail.LiveState.Activity.Phase != "" || detail.LiveState.Activity.Summary != "" {
+		t.Fatalf("expected activity override to clear, got %+v", detail.LiveState.Activity)
+	}
+}

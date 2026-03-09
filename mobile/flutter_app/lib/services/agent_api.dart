@@ -141,8 +141,35 @@ class AgentApi {
         ...body,
         'thread': _objectValue(body['thread']),
         'events': _cloneObjectList(body['events']),
+        'liveState': const <String, dynamic>{},
+        'operationState': const <String, dynamic>{},
       };
     }
+  }
+
+  Stream<Map<String, dynamic>> sessionStream(
+    String baseUrl,
+    String sessionId,
+  ) async* {
+    final response = await _streamRequest(
+      baseUrl: baseUrl,
+      path: '/v1/agent/sessions/${Uri.encodeComponent(sessionId)}/stream',
+    );
+    yield* _decodeSseEvents(response).map(_normalizeSessionDetail);
+  }
+
+  Future<Map<String, dynamic>> updateSessionLiveState(
+    String baseUrl,
+    String sessionId,
+    Map<String, dynamic> update,
+  ) async {
+    final body = await _request(
+      method: 'POST',
+      baseUrl: baseUrl,
+      path: '/v1/agent/sessions/${Uri.encodeComponent(sessionId)}/live',
+      body: update,
+    );
+    return _normalizeSessionDetail(body);
   }
 
   Future<Map<String, dynamic>> threads(String baseUrl) {
@@ -194,10 +221,13 @@ class AgentApi {
 
   Map<String, dynamic> _normalizeSessionDetail(Map<String, dynamic> body) {
     final session = _objectValue(body['session']);
+    final timeline = body['timeline'] is List ? body['timeline'] : body['events'];
     return {
       ...body,
       'thread': _normalizeSessionSummary(session),
-      'events': _cloneObjectList(body['timeline']),
+      'events': _cloneObjectList(timeline),
+      'liveState': _objectValue(body['liveState']),
+      'operationState': _objectValue(body['operationState']),
     };
   }
 
@@ -242,22 +272,83 @@ class AgentApi {
     return value.toString();
   }
 
+  Future<http.StreamedResponse> _streamRequest({
+    required String baseUrl,
+    required String path,
+  }) async {
+    final uri = _buildUri(baseUrl, path);
+    final request = http.Request('GET', uri)
+      ..headers['Accept'] = 'text/event-stream';
+    final response = await _client.send(request);
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return response;
+    }
+
+    final text = await response.stream.bytesToString();
+    dynamic decoded;
+    if (text.isEmpty) {
+      decoded = <String, dynamic>{};
+    } else {
+      try {
+        decoded = jsonDecode(text);
+      } catch (_) {
+        decoded = <String, dynamic>{'raw': text};
+      }
+    }
+
+    final message = decoded is Map<String, dynamic>
+        ? (decoded['error']?.toString() ?? decoded.toString())
+        : decoded.toString();
+    throw AgentApiException(
+      response.statusCode,
+      message,
+      responseBody: decoded is Map<String, dynamic> ? decoded : null,
+    );
+  }
+
+  Stream<Map<String, dynamic>> _decodeSseEvents(
+    http.StreamedResponse response,
+  ) async* {
+    final lines = response.stream.transform(utf8.decoder).transform(const LineSplitter());
+    final buffer = <String>[];
+    await for (final line in lines) {
+      if (line.isEmpty) {
+        if (buffer.isEmpty) {
+          continue;
+        }
+        final payload = buffer.join('\n');
+        buffer.clear();
+        if (payload.trim().isEmpty) {
+          continue;
+        }
+        dynamic decoded;
+        try {
+          decoded = jsonDecode(payload);
+        } catch (_) {
+          continue;
+        }
+        if (decoded is Map<String, dynamic>) {
+          yield decoded;
+        }
+        continue;
+      }
+
+      if (line.startsWith(':')) {
+        continue;
+      }
+      if (line.startsWith('data:')) {
+        buffer.add(line.substring(5).trimLeft());
+      }
+    }
+  }
+
   Future<Map<String, dynamic>> _request({
     required String method,
     required String baseUrl,
     required String path,
     Map<String, dynamic>? body,
   }) async {
-    final normalized = baseUrl.trim();
-    if (normalized.isEmpty) {
-      throw AgentApiException(0, 'agent base url is empty');
-    }
-
-    var trimmedBase = normalized;
-    while (trimmedBase.endsWith('/')) {
-      trimmedBase = trimmedBase.substring(0, trimmedBase.length - 1);
-    }
-    final uri = Uri.parse(trimmedBase + path);
+    final uri = _buildUri(baseUrl, path);
 
     late final http.Response response;
     if (method == 'GET') {
@@ -300,5 +391,18 @@ class AgentApi {
     }
 
     return <String, dynamic>{'data': decoded};
+  }
+
+  Uri _buildUri(String baseUrl, String path) {
+    final normalized = baseUrl.trim();
+    if (normalized.isEmpty) {
+      throw AgentApiException(0, 'agent base url is empty');
+    }
+
+    var trimmedBase = normalized;
+    while (trimmedBase.endsWith('/')) {
+      trimmedBase = trimmedBase.substring(0, trimmedBase.length - 1);
+    }
+    return Uri.parse(trimmedBase + path);
   }
 }

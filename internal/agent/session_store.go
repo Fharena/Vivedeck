@@ -88,6 +88,7 @@ type SessionStore struct {
 	participantsBySession map[string]map[string]SessionParticipant
 	composerBySession     map[string]SessionComposerState
 	focusBySession        map[string]SessionFocusState
+	activityBySession     map[string]SessionActivityState
 }
 
 func NewSessionStore(threadStore *ThreadStore, adapterInfo AdapterRuntimeInfo) *SessionStore {
@@ -98,6 +99,7 @@ func NewSessionStore(threadStore *ThreadStore, adapterInfo AdapterRuntimeInfo) *
 		participantsBySession: make(map[string]map[string]SessionParticipant),
 		composerBySession:     make(map[string]SessionComposerState),
 		focusBySession:        make(map[string]SessionFocusState),
+		activityBySession:     make(map[string]SessionActivityState),
 	}
 }
 
@@ -225,10 +227,13 @@ func (s *SessionStore) applyLiveOverrides(sessionID string, base SessionLiveStat
 		base.Participants = participantsSlice(participants)
 	}
 	if composer, ok := s.composerBySession[sessionID]; ok {
-		base.Composer = mergeComposerState(base.Composer, composer)
+		base.Composer = composer
 	}
 	if focus, ok := s.focusBySession[sessionID]; ok {
-		base.Focus = mergeFocusState(base.Focus, focus)
+		base.Focus = focus
+	}
+	if activity, ok := s.activityBySession[sessionID]; ok {
+		base.Activity = activity
 	}
 	return base
 }

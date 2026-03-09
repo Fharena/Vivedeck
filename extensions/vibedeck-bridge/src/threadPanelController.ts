@@ -36,6 +36,7 @@ export interface ThreadPanelWebviewPanelLike extends DisposableLike {
 }
 
 export interface ThreadPanelWindowLike {
+  activeTextEditor?: unknown;
   createWebviewPanel(
     viewType: string,
     title: string,
@@ -116,6 +117,8 @@ interface ThreadPanelViewState {
   currentThread: AgentPanelThreadSummary | null;
   currentJobId: string;
   events: AgentPanelThreadEvent[];
+  live: AgentPanelThreadDetail["liveState"];
+  operation: AgentPanelThreadDetail["operationState"];
   derived: ThreadPanelDerivedState;
 }
 
@@ -143,6 +146,8 @@ class DefaultThreadPanelController implements ThreadPanelController {
   private panel: ThreadPanelWebviewPanelLike | undefined;
   private refreshTimer: NodeJS.Timeout | undefined;
   private refreshInFlight: Promise<void> | undefined;
+  private sessionStream: DisposableLike | undefined;
+  private sessionStreamThreadId = "";
   private selectedThreadId = "";
   private composeMode = false;
   private lastState: ThreadPanelViewState | undefined;
@@ -177,6 +182,7 @@ class DefaultThreadPanelController implements ThreadPanelController {
     panel.onDidDispose(() => {
       this.panel = undefined;
       this.stopRefreshLoop();
+      this.stopSessionStream();
     });
     panel.webview.onDidReceiveMessage((message) => {
       void this.handleMessage(message);
@@ -196,6 +202,7 @@ class DefaultThreadPanelController implements ThreadPanelController {
 
   dispose(): void {
     this.stopRefreshLoop();
+    this.stopSessionStream();
     const panel = this.panel;
     this.panel = undefined;
     panel?.dispose();
@@ -264,6 +271,12 @@ class DefaultThreadPanelController implements ThreadPanelController {
       this.lastState = state;
       this.updatePanelTitle(state);
       await panel.webview.postMessage({ type: "state", state });
+      if (detail && !this.composeMode) {
+        this.restartSessionStream(settings.agentBaseUrl, detail.thread.id);
+        void this.publishSessionPresence(settings.agentBaseUrl, detail, state);
+      } else {
+        this.stopSessionStream();
+      }
     } catch (error) {
       const state = buildFallbackState(
         settings,
@@ -286,22 +299,37 @@ class DefaultThreadPanelController implements ThreadPanelController {
         case "refresh":
           await this.refresh();
           return;
-        case "new-thread":
+        case "new-thread": {
+          const previousThreadId = this.currentThreadID();
+          if (previousThreadId) {
+            await this.clearSessionComposer(this.readSettings().agentBaseUrl, previousThreadId);
+          }
           this.composeMode = true;
           this.selectedThreadId = "";
+          this.stopSessionStream();
           this.lastStatusMessage = "새 스레드를 작성 중입니다.";
           this.lastErrorMessage = "";
           await this.refresh();
           return;
-        case "select-thread":
+        }
+        case "select-thread": {
+          const previousThreadId = this.currentThreadID();
+          const nextThreadId = text(message.threadId);
+          if (previousThreadId && previousThreadId !== nextThreadId) {
+            await this.clearSessionComposer(this.readSettings().agentBaseUrl, previousThreadId);
+          }
           this.composeMode = false;
-          this.selectedThreadId = text(message.threadId);
+          this.selectedThreadId = nextThreadId;
           this.lastStatusMessage = "";
           this.lastErrorMessage = "";
           await this.refresh();
           return;
+        }
         case "submit-prompt":
           await this.submitPrompt(message);
+          return;
+        case "update-draft":
+          await this.updateDraft(text(message.prompt));
           return;
         case "apply-patch":
           await this.applyPatch();
@@ -341,6 +369,9 @@ class DefaultThreadPanelController implements ThreadPanelController {
     const responses = await this.sendEnvelopeAndRecover(settings.agentBaseUrl, envelope);
     this.applyEnvelopeResponses(responses);
     this.composeMode = false;
+    if (this.selectedThreadId) {
+      await this.clearSessionComposer(settings.agentBaseUrl, this.selectedThreadId);
+    }
     if (!this.lastErrorMessage) {
       this.lastStatusMessage = "프롬프트를 전송했습니다.";
     }
@@ -440,8 +471,155 @@ class DefaultThreadPanelController implements ThreadPanelController {
     };
   }
 
+  private async updateDraft(prompt: string): Promise<void> {
+    if (this.composeMode) {
+      return;
+    }
+    const threadId = this.currentThreadID();
+    if (!threadId) {
+      return;
+    }
+
+    const settings = this.readSettings();
+    await this.publishSessionLiveState(settings.agentBaseUrl, threadId, {
+      composer: {
+        draftText: prompt,
+        isTyping: prompt.trim().length > 0,
+        updatedAt: Date.now(),
+      },
+    });
+  }
+
+  private currentThreadID(): string {
+    return this.selectedThreadId || this.lastState?.currentThread?.id || "";
+  }
+
   private currentSessionID(): string {
     return this.lastState?.currentThread?.sessionId || "sid-vibedeck-panel";
+  }
+
+  private restartSessionStream(baseUrl: string, threadId: string): void {
+    if (!threadId) {
+      this.stopSessionStream();
+      return;
+    }
+    if (
+      this.sessionStream &&
+      this.sessionStreamThreadId === threadId
+    ) {
+      return;
+    }
+
+    this.stopSessionStream();
+    this.sessionStreamThreadId = threadId;
+    this.sessionStream = this.api.subscribeSession(
+      baseUrl,
+      threadId,
+      (detail) => {
+        this.applySessionSnapshot(detail);
+      },
+      () => {
+        if (this.sessionStreamThreadId !== threadId) {
+          return;
+        }
+        this.stopSessionStream();
+      },
+    );
+  }
+
+  private stopSessionStream(): void {
+    this.sessionStreamThreadId = "";
+    this.sessionStream?.dispose();
+    this.sessionStream = undefined;
+  }
+
+  private applySessionSnapshot(detail: AgentPanelThreadDetail): void {
+    const panel = this.panel;
+    if (!panel) {
+      return;
+    }
+
+    this.selectedThreadId = detail.thread.id;
+    const previous = this.lastState;
+    const settings = this.readSettings();
+    const nextState = buildViewState({
+      settings: {
+        agentBaseUrl: previous?.agentBaseUrl || settings.agentBaseUrl,
+        autoRefreshMs: previous?.autoRefreshMs || settings.autoRefreshMs,
+      },
+      adapter: previous?.adapter ?? {
+        name: "",
+        mode: "",
+        ready: false,
+        workspaceRoot: "",
+        binaryPath: "",
+        notes: [],
+      },
+      runProfiles: previous?.runProfiles ?? [],
+      threads: previous?.threads ?? [],
+      selectedThreadId: detail.thread.id,
+      composeMode: false,
+      detail,
+      statusMessage: this.lastStatusMessage,
+      errorMessage: this.lastErrorMessage,
+    });
+
+    this.lastState = nextState;
+    this.updatePanelTitle(nextState);
+    void panel.webview.postMessage({ type: "state", state: nextState });
+  }
+
+  private async publishSessionPresence(
+    baseUrl: string,
+    detail: AgentPanelThreadDetail,
+    state: ThreadPanelViewState,
+  ): Promise<void> {
+    const update: Record<string, unknown> = {
+      participant: {
+        participantId: "cursor-panel",
+        clientType: "cursor_panel",
+        displayName: "Cursor Panel",
+        active: true,
+        lastSeenAt: Date.now(),
+      },
+      activity: {
+        phase: detail.operationState.phase || detail.thread.state,
+        summary:
+          state.derived.promptText.trim().length > 0
+            ? "Cursor 패널에서 프롬프트 작성 중"
+            : "Cursor 패널에서 세션을 보고 있습니다.",
+        updatedAt: Date.now(),
+      },
+    };
+
+    const focus = readActiveEditorFocus(this.vscode.window.activeTextEditor);
+    if (focus) {
+      update.focus = focus;
+    }
+
+    await this.publishSessionLiveState(baseUrl, detail.thread.id, update);
+  }
+
+  private async clearSessionComposer(baseUrl: string, threadId: string): Promise<void> {
+    await this.publishSessionLiveState(baseUrl, threadId, {
+      composer: {
+        draftText: "",
+        isTyping: false,
+        updatedAt: Date.now(),
+      },
+    });
+  }
+
+  private async publishSessionLiveState(
+    baseUrl: string,
+    threadId: string,
+    update: Record<string, unknown>,
+  ): Promise<void> {
+    if (!threadId) {
+      return;
+    }
+    const detail = await this.api.updateSessionLiveState(baseUrl, threadId, update);
+    this.applySessionSnapshot(detail);
   }
 
   private async sendEnvelopeAndRecover(
@@ -578,8 +756,10 @@ function buildViewState(input: {
     threads: input.threads,
     selectedThreadId: input.selectedThreadId,
     currentThread,
-    currentJobId: currentThread?.currentJobId || "",
+    currentJobId: currentThread?.currentJobId || input.detail?.operationState.currentJobId || "",
     events: input.detail?.events ?? [],
+    live: input.detail?.liveState ?? emptySessionLiveState(),
+    operation: input.detail?.operationState ?? emptySessionOperationState(),
     derived: deriveThreadState(input.detail, input.errorMessage),
   };
 }
@@ -606,6 +786,8 @@ function buildFallbackState(
       currentThread: null,
       currentJobId: "",
       events: [],
+      live: emptySessionLiveState(),
+      operation: emptySessionOperationState(),
       derived: emptyDerivedState(),
     };
   }
@@ -679,6 +861,37 @@ function deriveThreadState(
   });
 
   return state;
+}
+
+function emptySessionLiveState(): AgentPanelThreadDetail["liveState"] {
+  return {
+    participants: [],
+    composer: { draftText: "", isTyping: false, updatedAt: 0 },
+    focus: {
+      activeFilePath: "",
+      selection: "",
+      patchPath: "",
+      runErrorPath: "",
+      runErrorLine: 0,
+      updatedAt: 0,
+    },
+    activity: { phase: "", summary: "", updatedAt: 0 },
+  };
+}
+
+function emptySessionOperationState(): AgentPanelThreadDetail["operationState"] {
+  return {
+    currentJobId: "",
+    phase: "",
+    patchSummary: "",
+    patchResultStatus: "",
+    patchResultMessage: "",
+    runProfileId: "",
+    runStatus: "",
+    runSummary: "",
+    currentJobFiles: [],
+    lastError: "",
+  };
 }
 
 function emptyDerivedState(): ThreadPanelDerivedState {
@@ -803,6 +1016,38 @@ function describeError(error: unknown): string {
   return String(error);
 }
 
+function readActiveEditorFocus(editor: unknown): Record<string, unknown> | null {
+  const editorValue = objectValue(editor);
+  const documentValue = objectValue(editorValue.document);
+  const uriValue = objectValue(documentValue.uri);
+  const focusPath = text(uriValue.fsPath) || text(documentValue.fileName);
+  const selectionValue = objectValue(editorValue.selection);
+  const startValue = objectValue(selectionValue.start);
+  const endValue = objectValue(selectionValue.end);
+
+  const parts: string[] = [];
+  const hasStart = typeof startValue.line === "number" || typeof startValue.character === "number";
+  const hasEnd = typeof endValue.line === "number" || typeof endValue.character === "number";
+  if (hasStart) {
+    parts.push(`${numberValue(startValue.line) + 1}:${numberValue(startValue.character) + 1}`);
+  }
+  if (hasEnd &&
+      (numberValue(endValue.line) !== numberValue(startValue.line) ||
+        numberValue(endValue.character) !== numberValue(startValue.character))) {
+    parts.push(`${numberValue(endValue.line) + 1}:${numberValue(endValue.character) + 1}`);
+  }
+
+  if (!focusPath && parts.length === 0) {
+    return null;
+  }
+
+  return compactObject({
+    activeFilePath: focusPath,
+    selection: parts.join(' -> '),
+    updatedAt: Date.now(),
+  });
+}
+
 function normalizeRefreshMs(value: number): number {
   if (!Number.isFinite(value) || value < 1000) {
     return 4000;
@@ -900,6 +1145,7 @@ function renderThreadPanelHtml(nonce: string): string {
     const vscode = acquireVsCodeApi();
     let state = emptyState();
     let draftPrompt = "";
+    let draftSyncTimer = undefined;
     let selectedRunProfileId = "";
     let contextOptions = {
       includeActiveFile: true,
@@ -970,6 +1216,12 @@ function renderThreadPanelHtml(nonce: string): string {
       const target = event.target;
       if (target && target.id === "prompt-input") {
         draftPrompt = target.value;
+        if (draftSyncTimer) {
+          clearTimeout(draftSyncTimer);
+        }
+        draftSyncTimer = setTimeout(function() {
+          post("update-draft", { prompt: draftPrompt });
+        }, 250);
       }
     });
 
@@ -1008,6 +1260,8 @@ function renderThreadPanelHtml(nonce: string): string {
         currentThread: null,
         currentJobId: "",
         events: [],
+        live: { participants: [], composer: { draftText: "", isTyping: false, updatedAt: 0 }, focus: { activeFilePath: "", selection: "", patchPath: "", runErrorPath: "", runErrorLine: 0, updatedAt: 0 }, activity: { phase: "", summary: "", updatedAt: 0 } },
+        operation: { currentJobId: "", phase: "", patchSummary: "", patchResultStatus: "", patchResultMessage: "", runProfileId: "", runStatus: "", runSummary: "", currentJobFiles: [], lastError: "" },
         derived: { promptText: "", patchSummary: "", patchFiles: [], patchResultStatus: "", patchResultMessage: "", patchAvailabilityReason: "", currentJobFiles: [], runProfileId: "", runStatus: "", runSummary: "", runExcerpt: "", runOutput: "", runErrors: [] },
       };
     }
@@ -1017,7 +1271,7 @@ function renderThreadPanelHtml(nonce: string): string {
       if (!app) {
         return;
       }
-      const promptValue = draftPrompt || (state.composeMode ? "" : state.derived.promptText);
+      const promptValue = draftPrompt || (state.composeMode ? "" : (state.live.composer.draftText || state.derived.promptText));
       app.innerHTML = [
         '<div class="layout">',
         '  <aside class="sidebar stack">',
@@ -1027,6 +1281,7 @@ function renderThreadPanelHtml(nonce: string): string {
         '  </aside>',
         '  <main class="main">',
         renderBanner(),
+        '    <section class="card stack"><div class="title">Live Session</div>' + renderLive() + '</section>',
         '    <section class="card stack">',
         '      <div class="row">',
         '        <div class="pill ' + (state.adapter.ready ? 'ok' : 'bad') + '">adapter ' + esc(state.adapter.name || '-') + '</div>',
@@ -1090,6 +1345,30 @@ function renderThreadPanelHtml(nonce: string): string {
         const selected = profile.id === selectedRunProfileId ? ' selected' : '';
         return '<option value="' + attr(profile.id) + '"' + selected + '>' + esc(label) + '</option>';
       }).join('');
+    }
+
+    function renderLive() {
+      const items = [
+        '<div class="row">',
+        '  <div class="pill">participants ' + esc(String(state.live.participants.length || 0)) + '</div>',
+        '  <div class="pill">phase ' + esc(state.operation.phase || state.currentThread?.state || '-') + '</div>',
+        '  <div class="pill">typing ' + esc(state.live.composer.isTyping ? 'yes' : 'no') + '</div>',
+        '</div>',
+      ];
+      if (state.live.activity.summary) {
+        items.push('<div class="muted">' + esc(state.live.activity.summary) + '</div>');
+      }
+      const focus = state.live.focus.activeFilePath || state.live.focus.patchPath || state.live.focus.runErrorPath || state.live.focus.selection;
+      if (focus) {
+        items.push('<div class="muted">focus ' + esc(focus) + '</div>');
+      }
+      if (state.live.composer.draftText) {
+        items.push('<pre>' + esc(state.live.composer.draftText) + '</pre>');
+      }
+      if (!state.live.activity.summary && !focus && !state.live.composer.draftText) {
+        items.push('<div class="empty">아직 공유된 live 상태가 없습니다.</div>');
+      }
+      return items.join('');
     }
 
     function renderPatch() {

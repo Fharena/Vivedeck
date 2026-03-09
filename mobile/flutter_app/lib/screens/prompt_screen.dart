@@ -85,6 +85,7 @@ class _PromptScreenState extends State<PromptScreen> {
                           onPressed: () {
                             widget.controller.beginNewThread();
                             _promptController.clear();
+                            widget.controller.updatePromptDraft('');
                           },
                           icon: const Icon(Icons.add_comment_outlined),
                           label: const Text('새 스레드'),
@@ -118,6 +119,62 @@ class _PromptScreenState extends State<PromptScreen> {
             ),
             const SizedBox(height: 12),
             _SectionCard(
+              title: '실시간 세션',
+              subtitle: 'Cursor와 모바일의 참여자, 초안, 포커스를 같은 세션에서 공유합니다.',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _MetricChip(
+                        label: '세션 단계',
+                        value: widget.controller.currentSessionPhase,
+                      ),
+                      _MetricChip(
+                        label: '참여자',
+                        value: widget.controller.liveParticipantSummary,
+                      ),
+                      _MetricChip(
+                        label: '활동',
+                        value: widget.controller.liveComposerTyping
+                            ? '작성 중'
+                            : '대기',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    widget.controller.liveActivitySummary,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '포커스: ${widget.controller.liveFocusSummary}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  if (widget.controller.liveDraftPreview.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF5FBF8),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: colors.outlineVariant),
+                      ),
+                      child: Text(
+                        widget.controller.liveDraftPreview,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _SectionCard(
               title: '대화 타임라인',
               subtitle: '프롬프트, 패치, 실행 결과가 하나의 흐름으로 누적됩니다.',
               child: widget.controller.threadEvents.isEmpty
@@ -139,6 +196,7 @@ class _PromptScreenState extends State<PromptScreen> {
                     controller: _promptController,
                     minLines: 4,
                     maxLines: 7,
+                    onChanged: widget.controller.updatePromptDraft,
                     decoration: InputDecoration(
                       hintText: '예: src/hello.py 파일을 만들고 hello world만 출력하게 해줘.',
                       filled: true,
@@ -207,6 +265,10 @@ class _PromptScreenState extends State<PromptScreen> {
                             }
 
                             final error = widget.controller.errorMessage;
+                            if (error == null) {
+                              _promptController.clear();
+                              widget.controller.updatePromptDraft('');
+                            }
                             messenger.showSnackBar(
                               SnackBar(
                                 content: Text(
@@ -227,6 +289,7 @@ class _PromptScreenState extends State<PromptScreen> {
                     ),
                     onPressed: () {
                       _promptController.clear();
+                      widget.controller.updatePromptDraft('');
                     },
                   ),
                 ),
@@ -243,12 +306,14 @@ class _PromptScreenState extends State<PromptScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('최근 초안', style: Theme.of(context).textTheme.titleMedium),
+                  Text('공유 초안', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 8),
                   Text(
-                    widget.controller.promptDraft.isEmpty
-                        ? '아직 제출된 prompt가 없습니다.'
-                        : widget.controller.promptDraft,
+                    widget.controller.liveDraftPreview.isNotEmpty
+                        ? widget.controller.liveDraftPreview
+                        : (widget.controller.promptDraft.isEmpty
+                            ? '아직 공유된 draft가 없습니다.'
+                            : widget.controller.promptDraft),
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ],
