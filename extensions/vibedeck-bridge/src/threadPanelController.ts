@@ -876,6 +876,26 @@ function emptySessionLiveState(): AgentPanelThreadDetail["liveState"] {
       updatedAt: 0,
     },
     activity: { phase: "", summary: "", updatedAt: 0 },
+    reasoning: { title: "", summary: "", sourceKind: "", updatedAt: 0 },
+    plan: { summary: "", items: [], updatedAt: 0 },
+    tools: { currentLabel: "", currentStatus: "", activities: [], updatedAt: 0 },
+    terminal: {
+      status: "",
+      profileId: "",
+      label: "",
+      command: "",
+      summary: "",
+      excerpt: "",
+      output: "",
+      updatedAt: 0,
+    },
+    workspace: {
+      rootPath: "",
+      activeFilePath: "",
+      patchFiles: [],
+      changedFiles: [],
+      updatedAt: 0,
+    },
   };
 }
 
@@ -884,11 +904,19 @@ function emptySessionOperationState(): AgentPanelThreadDetail["operationState"] 
     currentJobId: "",
     phase: "",
     patchSummary: "",
+    patchFileCount: 0,
+    patchFiles: [],
     patchResultStatus: "",
     patchResultMessage: "",
     runProfileId: "",
+    runLabel: "",
+    runCommand: "",
     runStatus: "",
     runSummary: "",
+    runExcerpt: "",
+    runOutput: "",
+    runChangedFiles: [],
+    runTopErrors: [],
     currentJobFiles: [],
     lastError: "",
   };
@@ -1260,8 +1288,8 @@ function renderThreadPanelHtml(nonce: string): string {
         currentThread: null,
         currentJobId: "",
         events: [],
-        live: { participants: [], composer: { draftText: "", isTyping: false, updatedAt: 0 }, focus: { activeFilePath: "", selection: "", patchPath: "", runErrorPath: "", runErrorLine: 0, updatedAt: 0 }, activity: { phase: "", summary: "", updatedAt: 0 } },
-        operation: { currentJobId: "", phase: "", patchSummary: "", patchResultStatus: "", patchResultMessage: "", runProfileId: "", runStatus: "", runSummary: "", currentJobFiles: [], lastError: "" },
+        live: { participants: [], composer: { draftText: "", isTyping: false, updatedAt: 0 }, focus: { activeFilePath: "", selection: "", patchPath: "", runErrorPath: "", runErrorLine: 0, updatedAt: 0 }, activity: { phase: "", summary: "", updatedAt: 0 }, reasoning: { title: "", summary: "", sourceKind: "", updatedAt: 0 }, plan: { summary: "", items: [], updatedAt: 0 }, tools: { currentLabel: "", currentStatus: "", activities: [], updatedAt: 0 }, terminal: { status: "", profileId: "", label: "", command: "", summary: "", excerpt: "", output: "", updatedAt: 0 }, workspace: { rootPath: "", activeFilePath: "", patchFiles: [], changedFiles: [], updatedAt: 0 } },
+        operation: { currentJobId: "", phase: "", patchSummary: "", patchFileCount: 0, patchFiles: [], patchResultStatus: "", patchResultMessage: "", runProfileId: "", runLabel: "", runCommand: "", runStatus: "", runSummary: "", runExcerpt: "", runOutput: "", runChangedFiles: [], runTopErrors: [], currentJobFiles: [], lastError: "" },
         derived: { promptText: "", patchSummary: "", patchFiles: [], patchResultStatus: "", patchResultMessage: "", patchAvailabilityReason: "", currentJobFiles: [], runProfileId: "", runStatus: "", runSummary: "", runExcerpt: "", runOutput: "", runErrors: [] },
       };
     }

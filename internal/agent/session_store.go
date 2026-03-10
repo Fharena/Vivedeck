@@ -30,10 +30,15 @@ type SharedSessionDetail struct {
 }
 
 type SessionLiveState struct {
-	Participants []SessionParticipant `json:"participants,omitempty"`
-	Composer     SessionComposerState `json:"composer"`
-	Focus        SessionFocusState    `json:"focus"`
-	Activity     SessionActivityState `json:"activity"`
+	Participants []SessionParticipant  `json:"participants,omitempty"`
+	Composer     SessionComposerState  `json:"composer"`
+	Focus        SessionFocusState     `json:"focus"`
+	Activity     SessionActivityState  `json:"activity"`
+	Reasoning    SessionReasoningState `json:"reasoning"`
+	Plan         SessionPlanState      `json:"plan"`
+	Tools        SessionToolState      `json:"tools"`
+	Terminal     SessionTerminalState  `json:"terminal"`
+	Workspace    SessionWorkspaceState `json:"workspace"`
 }
 
 type SessionParticipant struct {
@@ -65,18 +70,86 @@ type SessionActivityState struct {
 	UpdatedAt int64  `json:"updatedAt,omitempty"`
 }
 
+type SessionReasoningState struct {
+	Title      string `json:"title,omitempty"`
+	Summary    string `json:"summary,omitempty"`
+	SourceKind string `json:"sourceKind,omitempty"`
+	UpdatedAt  int64  `json:"updatedAt,omitempty"`
+}
+
+type SessionPlanState struct {
+	Summary   string            `json:"summary,omitempty"`
+	Items     []SessionPlanItem `json:"items,omitempty"`
+	UpdatedAt int64             `json:"updatedAt,omitempty"`
+}
+
+type SessionPlanItem struct {
+	ID        string `json:"id,omitempty"`
+	Label     string `json:"label,omitempty"`
+	Status    string `json:"status,omitempty"`
+	Detail    string `json:"detail,omitempty"`
+	UpdatedAt int64  `json:"updatedAt,omitempty"`
+}
+
+type SessionToolState struct {
+	CurrentLabel  string                `json:"currentLabel,omitempty"`
+	CurrentStatus string                `json:"currentStatus,omitempty"`
+	Activities    []SessionToolActivity `json:"activities,omitempty"`
+	UpdatedAt     int64                 `json:"updatedAt,omitempty"`
+}
+
+type SessionToolActivity struct {
+	Kind   string `json:"kind,omitempty"`
+	Label  string `json:"label,omitempty"`
+	Status string `json:"status,omitempty"`
+	Detail string `json:"detail,omitempty"`
+	At     int64  `json:"at,omitempty"`
+}
+
+type SessionTerminalState struct {
+	Status    string `json:"status,omitempty"`
+	ProfileID string `json:"profileId,omitempty"`
+	Label     string `json:"label,omitempty"`
+	Command   string `json:"command,omitempty"`
+	Summary   string `json:"summary,omitempty"`
+	Excerpt   string `json:"excerpt,omitempty"`
+	Output    string `json:"output,omitempty"`
+	UpdatedAt int64  `json:"updatedAt,omitempty"`
+}
+
+type SessionWorkspaceState struct {
+	RootPath       string   `json:"rootPath,omitempty"`
+	ActiveFilePath string   `json:"activeFilePath,omitempty"`
+	PatchFiles     []string `json:"patchFiles,omitempty"`
+	ChangedFiles   []string `json:"changedFiles,omitempty"`
+	UpdatedAt      int64    `json:"updatedAt,omitempty"`
+}
+
+type SessionRunError struct {
+	Path    string `json:"path,omitempty"`
+	Line    int    `json:"line,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
 type SessionOperationState struct {
-	CurrentJobID       string   `json:"currentJobId,omitempty"`
-	Phase              string   `json:"phase,omitempty"`
-	PatchSummary       string   `json:"patchSummary,omitempty"`
-	PatchFileCount     int      `json:"patchFileCount,omitempty"`
-	PatchResultStatus  string   `json:"patchResultStatus,omitempty"`
-	PatchResultMessage string   `json:"patchResultMessage,omitempty"`
-	RunProfileID       string   `json:"runProfileId,omitempty"`
-	RunStatus          string   `json:"runStatus,omitempty"`
-	RunSummary         string   `json:"runSummary,omitempty"`
-	CurrentJobFiles    []string `json:"currentJobFiles,omitempty"`
-	LastError          string   `json:"lastError,omitempty"`
+	CurrentJobID       string            `json:"currentJobId,omitempty"`
+	Phase              string            `json:"phase,omitempty"`
+	PatchSummary       string            `json:"patchSummary,omitempty"`
+	PatchFileCount     int               `json:"patchFileCount,omitempty"`
+	PatchFiles         []string          `json:"patchFiles,omitempty"`
+	PatchResultStatus  string            `json:"patchResultStatus,omitempty"`
+	PatchResultMessage string            `json:"patchResultMessage,omitempty"`
+	RunProfileID       string            `json:"runProfileId,omitempty"`
+	RunLabel           string            `json:"runLabel,omitempty"`
+	RunCommand         string            `json:"runCommand,omitempty"`
+	RunStatus          string            `json:"runStatus,omitempty"`
+	RunSummary         string            `json:"runSummary,omitempty"`
+	RunExcerpt         string            `json:"runExcerpt,omitempty"`
+	RunOutput          string            `json:"runOutput,omitempty"`
+	RunChangedFiles    []string          `json:"runChangedFiles,omitempty"`
+	RunTopErrors       []SessionRunError `json:"runTopErrors,omitempty"`
+	CurrentJobFiles    []string          `json:"currentJobFiles,omitempty"`
+	LastError          string            `json:"lastError,omitempty"`
 }
 
 type SessionStore struct {
@@ -89,6 +162,11 @@ type SessionStore struct {
 	composerBySession     map[string]SessionComposerState
 	focusBySession        map[string]SessionFocusState
 	activityBySession     map[string]SessionActivityState
+	reasoningBySession    map[string]SessionReasoningState
+	planBySession         map[string]SessionPlanState
+	toolsBySession        map[string]SessionToolState
+	terminalBySession     map[string]SessionTerminalState
+	workspaceBySession    map[string]SessionWorkspaceState
 }
 
 func NewSessionStore(threadStore *ThreadStore, adapterInfo AdapterRuntimeInfo) *SessionStore {
@@ -100,6 +178,11 @@ func NewSessionStore(threadStore *ThreadStore, adapterInfo AdapterRuntimeInfo) *
 		composerBySession:     make(map[string]SessionComposerState),
 		focusBySession:        make(map[string]SessionFocusState),
 		activityBySession:     make(map[string]SessionActivityState),
+		reasoningBySession:    make(map[string]SessionReasoningState),
+		planBySession:         make(map[string]SessionPlanState),
+		toolsBySession:        make(map[string]SessionToolState),
+		terminalBySession:     make(map[string]SessionTerminalState),
+		workspaceBySession:    make(map[string]SessionWorkspaceState),
 	}
 }
 
@@ -147,7 +230,7 @@ func (s *SessionStore) Get(sessionID string) (SharedSessionDetail, bool) {
 	}
 
 	operation := deriveSessionOperationState(detail)
-	live := deriveSessionLiveState(detail, operation)
+	live := deriveSessionLiveState(detail, operation, s.workspaceRoot)
 	live = s.applyLiveOverrides(detail.Thread.ID, live)
 
 	return SharedSessionDetail{
@@ -235,6 +318,21 @@ func (s *SessionStore) applyLiveOverrides(sessionID string, base SessionLiveStat
 	if activity, ok := s.activityBySession[sessionID]; ok {
 		base.Activity = activity
 	}
+	if reasoning, ok := s.reasoningBySession[sessionID]; ok {
+		base.Reasoning = reasoning
+	}
+	if plan, ok := s.planBySession[sessionID]; ok {
+		base.Plan = plan
+	}
+	if tools, ok := s.toolsBySession[sessionID]; ok {
+		base.Tools = tools
+	}
+	if terminal, ok := s.terminalBySession[sessionID]; ok {
+		base.Terminal = terminal
+	}
+	if workspace, ok := s.workspaceBySession[sessionID]; ok {
+		base.Workspace = workspace
+	}
 	return base
 }
 
@@ -250,41 +348,6 @@ func participantsSlice(items map[string]SessionParticipant) []SessionParticipant
 		return out[i].LastSeenAt > out[j].LastSeenAt
 	})
 	return out
-}
-
-func mergeComposerState(base, override SessionComposerState) SessionComposerState {
-	if strings.TrimSpace(override.DraftText) != "" {
-		base.DraftText = override.DraftText
-	}
-	if override.IsTyping {
-		base.IsTyping = true
-	}
-	if override.UpdatedAt != 0 {
-		base.UpdatedAt = override.UpdatedAt
-	}
-	return base
-}
-
-func mergeFocusState(base, override SessionFocusState) SessionFocusState {
-	if strings.TrimSpace(override.ActiveFilePath) != "" {
-		base.ActiveFilePath = override.ActiveFilePath
-	}
-	if strings.TrimSpace(override.Selection) != "" {
-		base.Selection = override.Selection
-	}
-	if strings.TrimSpace(override.PatchPath) != "" {
-		base.PatchPath = override.PatchPath
-	}
-	if strings.TrimSpace(override.RunErrorPath) != "" {
-		base.RunErrorPath = override.RunErrorPath
-	}
-	if override.RunErrorLine != 0 {
-		base.RunErrorLine = override.RunErrorLine
-	}
-	if override.UpdatedAt != 0 {
-		base.UpdatedAt = override.UpdatedAt
-	}
-	return base
 }
 
 func deriveSessionOperationState(detail ThreadDetail) SessionOperationState {
@@ -304,8 +367,11 @@ func deriveSessionOperationState(detail ThreadDetail) SessionOperationState {
 		case "patch_ready":
 			operation.Phase = "reviewing"
 			operation.PatchSummary = firstNonEmptyText(stringValue(event.Data["summary"]), event.Body)
-			operation.CurrentJobFiles = patchPathsFromAny(event.Data["files"])
-			operation.PatchFileCount = len(operation.CurrentJobFiles)
+			operation.PatchFiles = patchPathsFromAny(event.Data["files"])
+			operation.PatchFileCount = len(operation.PatchFiles)
+			if len(operation.PatchFiles) > 0 {
+				operation.CurrentJobFiles = cloneStrings(operation.PatchFiles)
+			}
 		case "patch_apply_requested":
 			operation.Phase = "applying"
 		case "patch_applied":
@@ -320,29 +386,50 @@ func deriveSessionOperationState(detail ThreadDetail) SessionOperationState {
 		case "run_requested":
 			operation.Phase = "running"
 			operation.RunProfileID = valueFromData(event.Data, "profileId", operation.RunProfileID)
+			operation.RunLabel = firstNonEmptyText(valueFromData(event.Data, "label", ""), event.Body, operation.RunLabel)
+			operation.RunCommand = valueFromData(event.Data, "command", operation.RunCommand)
 		case "run_finished":
 			operation.Phase = "waiting_input"
 			operation.RunProfileID = valueFromData(event.Data, "profileId", operation.RunProfileID)
 			operation.RunStatus = valueFromData(event.Data, "status", operation.RunStatus)
 			operation.RunSummary = firstNonEmptyText(valueFromData(event.Data, "summary", ""), event.Body)
+			operation.RunExcerpt = firstNonEmptyText(valueFromData(event.Data, "excerpt", ""), operation.RunExcerpt)
+			operation.RunOutput = firstNonEmptyText(valueFromData(event.Data, "output", ""), operation.RunOutput)
+			if operation.RunOutput == "" {
+				operation.RunOutput = operation.RunExcerpt
+			}
 			changedFiles := stringSliceFromAny(event.Data["changedFiles"])
 			if len(changedFiles) > 0 {
-				operation.CurrentJobFiles = changedFiles
+				operation.RunChangedFiles = changedFiles
+				operation.CurrentJobFiles = cloneStrings(changedFiles)
 			}
+			operation.RunTopErrors = sessionRunErrorsFromAny(event.Data["topErrors"])
 			if strings.EqualFold(operation.RunStatus, "failed") {
 				operation.LastError = firstNonEmptyText(operation.RunSummary, firstParsedErrorMessage(event.Data["topErrors"]))
 			}
 		}
 	}
 
+	if operation.PatchFileCount == 0 && len(operation.PatchFiles) > 0 {
+		operation.PatchFileCount = len(operation.PatchFiles)
+	}
+	if len(operation.CurrentJobFiles) == 0 {
+		operation.CurrentJobFiles = firstNonEmptyStrings(operation.RunChangedFiles, operation.PatchFiles)
+	}
 	if operation.Phase == "" {
 		operation.Phase = "idle"
 	}
 	return operation
 }
 
-func deriveSessionLiveState(detail ThreadDetail, operation SessionOperationState) SessionLiveState {
-	live := SessionLiveState{}
+func deriveSessionLiveState(detail ThreadDetail, operation SessionOperationState, workspaceRoot string) SessionLiveState {
+	live := SessionLiveState{
+		Reasoning: deriveSessionReasoningState(detail, operation),
+		Plan:      deriveSessionPlanState(detail, operation),
+		Tools:     deriveSessionToolState(detail),
+		Terminal:  deriveSessionTerminalState(detail, operation),
+		Workspace: deriveSessionWorkspaceState(detail, operation, workspaceRoot),
+	}
 	for _, event := range detail.Events {
 		switch event.Kind {
 		case "prompt_submitted":
@@ -380,9 +467,340 @@ func deriveSessionLiveState(detail ThreadDetail, operation SessionOperationState
 		live.Activity.Phase = operation.Phase
 	}
 
+	if live.Workspace.ActiveFilePath == "" {
+		live.Workspace.ActiveFilePath = firstNonEmptyText(live.Focus.ActiveFilePath, firstString(live.Workspace.PatchFiles), firstString(live.Workspace.ChangedFiles))
+	}
+	if len(live.Workspace.PatchFiles) == 0 && live.Focus.PatchPath != "" {
+		live.Workspace.PatchFiles = []string{live.Focus.PatchPath}
+	}
+	if live.Workspace.UpdatedAt == 0 {
+		live.Workspace.UpdatedAt = firstNonZero(live.Focus.UpdatedAt, live.Activity.UpdatedAt, detail.Thread.UpdatedAt)
+	}
+
 	return live
 }
 
+func deriveSessionReasoningState(detail ThreadDetail, operation SessionOperationState) SessionReasoningState {
+	for i := len(detail.Events) - 1; i >= 0; i-- {
+		event := detail.Events[i]
+		if event.Role != "assistant" && event.Role != "system" {
+			continue
+		}
+		summary := firstNonEmptyText(valueFromData(event.Data, "summary", ""), event.Body, event.Title)
+		if summary == "" {
+			continue
+		}
+		return SessionReasoningState{
+			Title:      firstNonEmptyText(event.Title, sessionEventLabel(event.Kind)),
+			Summary:    summary,
+			SourceKind: event.Kind,
+			UpdatedAt:  event.At,
+		}
+	}
+	if operation.Phase == "" {
+		return SessionReasoningState{}
+	}
+	return SessionReasoningState{
+		Title:     sessionPhaseLabel(operation.Phase),
+		Summary:   sessionPlanSummary(nil, operation.Phase),
+		UpdatedAt: detail.Thread.UpdatedAt,
+	}
+}
+
+func deriveSessionPlanState(detail ThreadDetail, operation SessionOperationState) SessionPlanState {
+	var promptAt int64
+	var patchAt int64
+	var patchSummary string
+	var applyRequestedAt int64
+	var applyAt int64
+	var applyStatus string
+	var applyDetail string
+	var runRequestedAt int64
+	var runAt int64
+	var runStatus string
+	var runDetail string
+
+	for _, event := range detail.Events {
+		switch event.Kind {
+		case "prompt_submitted":
+			if promptAt == 0 {
+				promptAt = event.At
+			}
+		case "patch_ready":
+			patchAt = event.At
+			patchSummary = firstNonEmptyText(valueFromData(event.Data, "summary", ""), event.Body)
+		case "patch_apply_requested":
+			applyRequestedAt = event.At
+		case "patch_applied":
+			applyAt = event.At
+			applyStatus = valueFromData(event.Data, "status", applyStatus)
+			applyDetail = firstNonEmptyText(valueFromData(event.Data, "message", ""), event.Body)
+		case "run_requested":
+			runRequestedAt = event.At
+		case "run_finished":
+			runAt = event.At
+			runStatus = valueFromData(event.Data, "status", runStatus)
+			runDetail = firstNonEmptyText(valueFromData(event.Data, "summary", ""), event.Body)
+		}
+	}
+
+	items := []SessionPlanItem{
+		{ID: "request", Label: "요청 접수", Status: statusFromPresence(promptAt > 0, false), Detail: "사용자 요청이 세션에 기록되었습니다.", UpdatedAt: promptAt},
+		{ID: "draft_patch", Label: "패치 초안 준비", Status: planStatus(patchAt > 0, promptAt > 0 && patchAt == 0, false), Detail: firstNonEmptyText(patchSummary, sessionPlanDetail("draft_patch", operation.Phase)), UpdatedAt: firstNonZero(patchAt, promptAt)},
+		{ID: "apply_patch", Label: "패치 적용", Status: planStatus(applyAt > 0 && !strings.EqualFold(applyStatus, "failed"), applyRequestedAt > 0 && applyAt == 0, strings.EqualFold(applyStatus, "failed")), Detail: firstNonEmptyText(applyDetail, sessionPlanDetail("apply_patch", operation.Phase)), UpdatedAt: firstNonZero(applyAt, applyRequestedAt)},
+		{ID: "verify_run", Label: "실행 검증", Status: planStatus(runAt > 0 && !strings.EqualFold(runStatus, "failed"), runRequestedAt > 0 && runAt == 0, strings.EqualFold(runStatus, "failed")), Detail: firstNonEmptyText(runDetail, sessionPlanDetail("verify_run", operation.Phase)), UpdatedAt: firstNonZero(runAt, runRequestedAt)},
+	}
+
+	return SessionPlanState{Summary: sessionPlanSummary(items, operation.Phase), Items: items, UpdatedAt: firstNonZero(runAt, applyAt, patchAt, promptAt, detail.Thread.UpdatedAt)}
+}
+
+func deriveSessionToolState(detail ThreadDetail) SessionToolState {
+	activities := make([]SessionToolActivity, 0, len(detail.Events))
+	for _, event := range detail.Events {
+		activity, ok := sessionToolActivityFromEvent(event)
+		if !ok {
+			continue
+		}
+		activities = append(activities, activity)
+	}
+	if len(activities) == 0 {
+		return SessionToolState{}
+	}
+	if len(activities) > 8 {
+		activities = append([]SessionToolActivity(nil), activities[len(activities)-8:]...)
+	}
+	current := activities[len(activities)-1]
+	return SessionToolState{CurrentLabel: current.Label, CurrentStatus: current.Status, Activities: activities, UpdatedAt: current.At}
+}
+
+func deriveSessionTerminalState(detail ThreadDetail, operation SessionOperationState) SessionTerminalState {
+	terminal := SessionTerminalState{Status: operation.RunStatus, ProfileID: operation.RunProfileID, Label: firstNonEmptyText(operation.RunLabel, operation.RunProfileID), Command: operation.RunCommand, Summary: operation.RunSummary, Excerpt: operation.RunExcerpt, Output: operation.RunOutput}
+	for _, event := range detail.Events {
+		switch event.Kind {
+		case "run_requested":
+			terminal.Status = "running"
+			terminal.ProfileID = valueFromData(event.Data, "profileId", terminal.ProfileID)
+			terminal.Label = firstNonEmptyText(valueFromData(event.Data, "label", ""), event.Body, terminal.Label)
+			terminal.Command = valueFromData(event.Data, "command", terminal.Command)
+			terminal.UpdatedAt = event.At
+		case "run_finished":
+			terminal.Status = firstNonEmptyText(valueFromData(event.Data, "status", ""), terminal.Status)
+			terminal.ProfileID = valueFromData(event.Data, "profileId", terminal.ProfileID)
+			terminal.Summary = firstNonEmptyText(valueFromData(event.Data, "summary", ""), event.Body, terminal.Summary)
+			terminal.Excerpt = firstNonEmptyText(valueFromData(event.Data, "excerpt", ""), terminal.Excerpt)
+			terminal.Output = firstNonEmptyText(valueFromData(event.Data, "output", ""), terminal.Output)
+			if terminal.Output == "" {
+				terminal.Output = terminal.Excerpt
+			}
+			terminal.UpdatedAt = event.At
+		}
+	}
+	return terminal
+}
+
+func deriveSessionWorkspaceState(detail ThreadDetail, operation SessionOperationState, workspaceRoot string) SessionWorkspaceState {
+	workspace := SessionWorkspaceState{RootPath: strings.TrimSpace(workspaceRoot)}
+	for _, event := range detail.Events {
+		switch event.Kind {
+		case "prompt_submitted":
+			path := stringValue(event.Data["activeFilePath"])
+			if path != "" {
+				workspace.ActiveFilePath = path
+				workspace.UpdatedAt = event.At
+			}
+			changedFiles := stringSliceFromAny(event.Data["changedFiles"])
+			if len(changedFiles) > 0 {
+				workspace.ChangedFiles = changedFiles
+				workspace.UpdatedAt = event.At
+			}
+		case "patch_ready":
+			patchFiles := patchPathsFromAny(event.Data["files"])
+			if len(patchFiles) > 0 {
+				workspace.PatchFiles = patchFiles
+				workspace.UpdatedAt = event.At
+			}
+		case "run_finished":
+			changedFiles := stringSliceFromAny(event.Data["changedFiles"])
+			if len(changedFiles) > 0 {
+				workspace.ChangedFiles = changedFiles
+				workspace.UpdatedAt = event.At
+			}
+		}
+	}
+	if len(workspace.PatchFiles) == 0 && len(operation.PatchFiles) > 0 {
+		workspace.PatchFiles = cloneStrings(operation.PatchFiles)
+	}
+	if len(workspace.ChangedFiles) == 0 && len(operation.RunChangedFiles) > 0 {
+		workspace.ChangedFiles = cloneStrings(operation.RunChangedFiles)
+	}
+	if workspace.ActiveFilePath == "" {
+		workspace.ActiveFilePath = firstNonEmptyText(firstString(operation.PatchFiles), firstString(operation.RunChangedFiles), firstString(operation.CurrentJobFiles))
+	}
+	if workspace.UpdatedAt == 0 {
+		workspace.UpdatedAt = detail.Thread.UpdatedAt
+	}
+	return workspace
+}
+
+func sessionToolActivityFromEvent(event ThreadEvent) (SessionToolActivity, bool) {
+	activity := SessionToolActivity{Kind: event.Kind, At: event.At}
+	switch event.Kind {
+	case "prompt_submitted":
+		activity.Label = "프롬프트 전송"
+		activity.Status = "completed"
+		activity.Detail = firstNonEmptyText(event.Body, event.Title)
+	case "prompt_accepted":
+		activity.Label = "에이전트 시작"
+		activity.Status = "completed"
+		activity.Detail = firstNonEmptyText(event.Body, event.Title)
+	case "patch_ready":
+		activity.Label = "패치 준비"
+		activity.Status = "completed"
+		activity.Detail = firstNonEmptyText(valueFromData(event.Data, "summary", ""), event.Body)
+	case "patch_apply_requested":
+		activity.Label = "패치 적용"
+		activity.Status = "in_progress"
+		activity.Detail = firstNonEmptyText(event.Body, event.Title)
+	case "patch_applied":
+		activity.Label = "패치 적용"
+		if strings.EqualFold(valueFromData(event.Data, "status", ""), "failed") {
+			activity.Status = "failed"
+		} else {
+			activity.Status = "completed"
+		}
+		activity.Detail = firstNonEmptyText(valueFromData(event.Data, "message", ""), event.Body)
+	case "run_requested":
+		activity.Label = "명령 실행"
+		activity.Status = "in_progress"
+		activity.Detail = firstNonEmptyText(valueFromData(event.Data, "command", ""), valueFromData(event.Data, "label", ""), event.Body)
+	case "run_finished":
+		activity.Label = "명령 실행"
+		if strings.EqualFold(valueFromData(event.Data, "status", ""), "failed") {
+			activity.Status = "failed"
+		} else {
+			activity.Status = "completed"
+		}
+		activity.Detail = firstNonEmptyText(valueFromData(event.Data, "summary", ""), event.Body)
+	default:
+		return SessionToolActivity{}, false
+	}
+	return activity, true
+}
+
+func sessionPhaseLabel(phase string) string {
+	switch strings.TrimSpace(phase) {
+	case "prompting":
+		return "요청 분석"
+	case "reviewing":
+		return "패치 검토"
+	case "applying":
+		return "패치 적용"
+	case "applied":
+		return "적용 완료"
+	case "running":
+		return "실행 검증"
+	case "waiting_input":
+		return "다음 입력 대기"
+	default:
+		return "세션 상태"
+	}
+}
+
+func sessionEventLabel(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case "prompt_submitted":
+		return "프롬프트 제출"
+	case "prompt_accepted":
+		return "작업 시작"
+	case "patch_ready":
+		return "패치 준비 완료"
+	case "patch_apply_requested":
+		return "패치 적용 요청"
+	case "patch_applied":
+		return "패치 적용 결과"
+	case "run_requested":
+		return "실행 요청"
+	case "run_finished":
+		return "실행 결과"
+	default:
+		return "세션 이벤트"
+	}
+}
+
+func sessionPlanDetail(stepID string, phase string) string {
+	switch stepID {
+	case "draft_patch":
+		if phase == "prompting" {
+			return "에이전트가 패치 초안을 준비하고 있습니다."
+		}
+		return "패치 초안이 준비되면 여기에서 검토할 수 있습니다."
+	case "apply_patch":
+		if phase == "reviewing" {
+			return "검토 후 패치 적용 여부를 결정할 수 있습니다."
+		}
+		if phase == "applying" {
+			return "패치를 워크스페이스에 반영하고 있습니다."
+		}
+		return "필요하면 패치를 워크스페이스에 적용합니다."
+	case "verify_run":
+		if phase == "running" {
+			return "실행 결과와 터미널 출력이 곧 반영됩니다."
+		}
+		return "실행 검증 결과가 세션에 누적됩니다."
+	default:
+		return ""
+	}
+}
+
+func sessionPlanSummary(items []SessionPlanItem, phase string) string {
+	for _, item := range items {
+		if item.Status == "failed" {
+			return item.Label + " 단계에서 확인이 필요합니다."
+		}
+	}
+	for _, item := range items {
+		if item.Status == "in_progress" {
+			return item.Label + " 진행 중입니다."
+		}
+	}
+	switch strings.TrimSpace(phase) {
+	case "reviewing":
+		return "패치와 작업 로그를 검토할 수 있습니다."
+	case "applied":
+		return "패치가 적용되었고 다음 검증을 진행할 수 있습니다."
+	case "waiting_input":
+		return "다음 입력이나 승인을 기다리는 상태입니다."
+	case "running":
+		return "실행 검증 결과를 수집하고 있습니다."
+	case "prompting":
+		return "에이전트가 요청을 분석하고 있습니다."
+	default:
+		return "세션 흐름이 여기에 정리됩니다."
+	}
+}
+
+func planStatus(completed bool, inProgress bool, failed bool) string {
+	if failed {
+		return "failed"
+	}
+	if completed {
+		return "completed"
+	}
+	if inProgress {
+		return "in_progress"
+	}
+	return "pending"
+}
+
+func statusFromPresence(completed bool, failed bool) string {
+	if failed {
+		return "failed"
+	}
+	if completed {
+		return "completed"
+	}
+	return "pending"
+}
 func phaseFromThreadSummary(thread ThreadSummary) string {
 	if thread.LastEventKind == "patch_apply_requested" {
 		return "applying"
@@ -458,7 +876,7 @@ func stringSliceFromAny(value any) []string {
 				out = append(out, item)
 			}
 		}
-		return out
+		return dedupeStrings(out)
 	case []any:
 		out := make([]string, 0, len(typed))
 		for _, item := range typed {
@@ -466,6 +884,40 @@ func stringSliceFromAny(value any) []string {
 			if text != "" {
 				out = append(out, text)
 			}
+		}
+		return dedupeStrings(out)
+	default:
+		return nil
+	}
+}
+
+func sessionRunErrorsFromAny(value any) []SessionRunError {
+	switch typed := value.(type) {
+	case []protocol.ParsedError:
+		out := make([]SessionRunError, 0, len(typed))
+		for _, item := range typed {
+			path := strings.TrimSpace(item.Path)
+			message := strings.TrimSpace(item.Message)
+			if path == "" && message == "" && item.Line == 0 {
+				continue
+			}
+			out = append(out, SessionRunError{Path: path, Line: item.Line, Message: message})
+		}
+		return out
+	case []any:
+		out := make([]SessionRunError, 0, len(typed))
+		for _, raw := range typed {
+			item, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			path := stringValue(item["path"])
+			message := stringValue(item["message"])
+			line := intValue(item["line"])
+			if path == "" && message == "" && line == 0 {
+				continue
+			}
+			out = append(out, SessionRunError{Path: path, Line: line, Message: message})
 		}
 		return out
 	default:
@@ -507,6 +959,68 @@ func firstParsedError(value any) (string, int, string) {
 	return "", 0, ""
 }
 
+func cloneStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return dedupeStrings(out)
+}
+
+func dedupeStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func firstNonEmptyStrings(groups ...[]string) []string {
+	for _, group := range groups {
+		if len(group) == 0 {
+			continue
+		}
+		return cloneStrings(group)
+	}
+	return nil
+}
+
+func firstString(values []string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstNonZero(values ...int64) int64 {
+	for _, value := range values {
+		if value != 0 {
+			return value
+		}
+	}
+	return 0
+}
 func stringValue(value any) string {
 	text, ok := value.(string)
 	if !ok {

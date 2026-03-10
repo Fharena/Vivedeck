@@ -9,10 +9,15 @@ import (
 )
 
 type SessionLiveUpdateRequest struct {
-	Participant *SessionParticipant   `json:"participant,omitempty"`
-	Composer    *SessionComposerState `json:"composer,omitempty"`
-	Focus       *SessionFocusState    `json:"focus,omitempty"`
-	Activity    *SessionActivityState `json:"activity,omitempty"`
+	Participant *SessionParticipant    `json:"participant,omitempty"`
+	Composer    *SessionComposerState  `json:"composer,omitempty"`
+	Focus       *SessionFocusState     `json:"focus,omitempty"`
+	Activity    *SessionActivityState  `json:"activity,omitempty"`
+	Reasoning   *SessionReasoningState `json:"reasoning,omitempty"`
+	Plan        *SessionPlanState      `json:"plan,omitempty"`
+	Tools       *SessionToolState      `json:"tools,omitempty"`
+	Terminal    *SessionTerminalState  `json:"terminal,omitempty"`
+	Workspace   *SessionWorkspaceState `json:"workspace,omitempty"`
 }
 
 func (s *HTTPServer) handleSessionPath(w http.ResponseWriter, r *http.Request) {
@@ -96,6 +101,21 @@ func (s *HTTPServer) handleSessionLiveUpdate(w http.ResponseWriter, r *http.Requ
 	}
 	if req.Activity != nil {
 		store.UpdateActivity(sessionID, *req.Activity)
+	}
+	if req.Reasoning != nil {
+		store.UpdateReasoning(sessionID, *req.Reasoning)
+	}
+	if req.Plan != nil {
+		store.UpdatePlan(sessionID, *req.Plan)
+	}
+	if req.Tools != nil {
+		store.UpdateTools(sessionID, *req.Tools)
+	}
+	if req.Terminal != nil {
+		store.UpdateTerminal(sessionID, *req.Terminal)
+	}
+	if req.Workspace != nil {
+		store.UpdateWorkspace(sessionID, *req.Workspace)
 	}
 
 	detail, ok := store.Get(sessionID)
