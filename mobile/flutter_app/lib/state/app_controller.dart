@@ -188,7 +188,7 @@ class AppController extends ChangeNotifier {
       return 'agent 응답을 처리하는 중입니다.';
     }
     if ((currentJobId ?? '').trim().isEmpty) {
-      return '먼저 대화 화면에서 프롬프트를 보내 작업을 시작하세요.';
+      return '먼저 프롬프트를 보내 작업을 시작하세요.';
     }
 
     final normalizedSummary = patchSummary.trim();

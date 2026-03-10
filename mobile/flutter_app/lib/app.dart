@@ -3,8 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'screens/prompt_screen.dart';
-import 'screens/review_screen.dart';
-import 'screens/status_screen.dart';
 import 'services/app_settings_store.dart';
 import 'services/bootstrap_link_source.dart';
 import 'state/app_controller.dart';
@@ -77,13 +75,11 @@ class MobileShell extends StatefulWidget {
 }
 
 class _MobileShellState extends State<MobileShell> {
-  int _index = 0;
   late final AppController _controller;
   late final bool _ownsController;
   late final BootstrapLinkSource _bootstrapLinkSource;
   StreamSubscription<Uri>? _bootstrapLinkSub;
 
-  static const _titles = ['대화', '검토', '상태'];
 
   @override
   void initState() {
@@ -127,11 +123,6 @@ class _MobileShellState extends State<MobileShell> {
       animation: _controller,
       builder: (context, _) {
         final colors = Theme.of(context).colorScheme;
-        final screens = [
-          PromptScreen(controller: _controller),
-          ReviewScreen(controller: _controller),
-          StatusScreen(controller: _controller),
-        ];
 
         return Scaffold(
           body: Container(
@@ -179,7 +170,7 @@ class _MobileShellState extends State<MobileShell> {
                                 style: Theme.of(context).textTheme.titleLarge,
                               ),
                               Text(
-                                '${_titles[_index]} · ${_controller.connectionState}',
+                                '공유 세션 · ${_controller.currentSessionPhase} · ${_controller.connectionState}',
                                 style: Theme.of(context)
                                     .textTheme
                                     .bodyMedium
@@ -197,34 +188,12 @@ class _MobileShellState extends State<MobileShell> {
                   Expanded(
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 260),
-                      child: screens[_index],
+                      child: PromptScreen(controller: _controller),
                     ),
                   ),
                 ],
               ),
             ),
-          ),
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: _index,
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.forum_outlined),
-                label: '대화',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.rule_folder),
-                label: '검토',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.sync_alt),
-                label: '상태',
-              ),
-            ],
-            onDestinationSelected: (value) {
-              setState(() {
-                _index = value;
-              });
-            },
           ),
         );
       },
