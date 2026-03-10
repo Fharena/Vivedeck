@@ -32,8 +32,17 @@ export interface SubmitTaskInput {
   context: WorkspaceContext;
 }
 
+export interface ProviderVisibleEvent {
+  kind?: string;
+  role?: string;
+  title?: string;
+  body?: string;
+  data?: Record<string, unknown>;
+}
+
 export interface TaskHandle {
   taskId: string;
+  providerEvents?: ProviderVisibleEvent[];
 }
 
 export interface Hunk {
@@ -94,6 +103,7 @@ export interface RunResult {
   summary: string;
   topErrors: ParsedError[];
   excerpt?: string;
+  providerEvents?: ProviderVisibleEvent[];
 }
 
 export interface OpenLocationInput {

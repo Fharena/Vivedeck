@@ -10,6 +10,7 @@ import {
   type ContextRequest,
   type FilePatch,
   type OpenLocationInput,
+  type ProviderVisibleEvent,
   type PatchBundle,
   type RunHandle,
   type RunProfileInput,
@@ -46,6 +47,7 @@ interface CursorAgentTask {
   rawDiff: string;
   parsed: UnifiedPatch;
   patch: PatchBundle;
+  providerEvents: ProviderVisibleEvent[];
   createdAt: string;
 }
 
@@ -147,7 +149,10 @@ export class CursorAgentCommandAdapter implements WorkspaceAdapter {
     const taskId = `task_${this.taskSeq}`;
     const task = await this.generateTask(taskId, input);
     this.tasks.set(taskId, task);
-    return { taskId };
+    return {
+      taskId,
+      providerEvents: task.providerEvents.map((event) => cloneProviderVisibleEvent(event)),
+    };
   }
 
   async getPatch(taskId: string): Promise<PatchBundle | null> {
@@ -225,13 +230,15 @@ export class CursorAgentCommandAdapter implements WorkspaceAdapter {
       const parsed = parseUnifiedPatch(rawDiff);
       const summary = taskSummary(cursorOutput, parsed);
 
+      const patch = toPatchBundle(parsed, summary);
       return {
         taskId,
         prompt: input.prompt,
         summary,
         rawDiff,
         parsed,
-        patch: toPatchBundle(parsed, summary),
+        patch,
+        providerEvents: buildProviderVisibleEvents(cursorOutput, patch),
         createdAt: new Date().toISOString(),
       };
     } finally {
@@ -710,6 +717,56 @@ function taskSummary(cursorOutput: string, patch: UnifiedPatch): string {
   return `Cursor Agent proposed changes in ${patch.files.length} file(s)`;
 }
 
+function buildProviderVisibleEvents(
+  cursorOutput: string,
+  patch: PatchBundle,
+): ProviderVisibleEvent[] {
+  const body = truncateVisibleText(extractCursorAgentVisibleText(cursorOutput), 4000);
+  if (body.length === 0) {
+    return [];
+  }
+
+  return [
+    {
+      kind: "provider_message",
+      role: "assistant",
+      title: "Cursor 응답",
+      body,
+      data: {
+        source: "cursor_agent_command",
+        summary: patch.summary,
+        fileCount: patch.files.length,
+      },
+    },
+  ];
+}
+
+function extractCursorAgentVisibleText(output: string): string {
+  const trimmed = output.trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as CursorAgentJSONOutput;
+    const candidates = [
+      parsed.text,
+      parsed.output,
+      parsed.result,
+      parsed.summary,
+      parsed.message,
+    ];
+    for (const candidate of candidates) {
+      if (candidate && candidate.trim().length > 0) {
+        return candidate.trim();
+      }
+    }
+  } catch {
+  }
+
+  return trimmed;
+}
+
 function extractCursorAgentSummary(output: string): string {
   const trimmed = output.trim();
   if (trimmed.length === 0) {
@@ -896,6 +953,24 @@ function lastLines(value: string, count: number): string {
   }
   const filtered = normalizeLines(value).filter((line) => line.trim().length > 0);
   return filtered.slice(-count).join("\n");
+}
+
+function truncateVisibleText(value: string, maxLength: number): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
+function cloneProviderVisibleEvent(event: ProviderVisibleEvent): ProviderVisibleEvent {
+  return {
+    kind: event.kind,
+    role: event.role,
+    title: event.title,
+    body: event.body,
+    data: event.data ? { ...event.data } : undefined,
+  };
 }
 
 function asErrorMessage(error: unknown): string {
