@@ -12,6 +12,7 @@ import type {
   Hunk,
   OpenLocationInput,
   ParsedError,
+  ProviderVisibleEvent,
   PatchBundle,
   RunHandle,
   RunProfileInput,
@@ -186,7 +187,10 @@ function normalizeTaskHandle(value: unknown): TaskHandle {
 
   const record = asRecord(value, "TaskHandle");
   const taskId = readRequiredString(record.taskId, "TaskHandle.taskId");
-  return { taskId };
+  return {
+    taskId,
+    providerEvents: normalizeProviderVisibleEvents(record.providerEvents, "TaskHandle.providerEvents"),
+  };
 }
 
 function normalizePatchBundle(value: unknown): PatchBundle | null {
@@ -288,6 +292,26 @@ function normalizeRunResult(value: unknown): RunResult | null {
     summary: readRequiredString(record.summary, "RunResult.summary"),
     topErrors,
     excerpt: readOptionalString(record.excerpt),
+    providerEvents: normalizeProviderVisibleEvents(record.providerEvents, "RunResult.providerEvents"),
+  };
+}
+
+function normalizeProviderVisibleEvents(value: unknown, label: string): ProviderVisibleEvent[] | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  return readArray(value, label).map((item, index) => normalizeProviderVisibleEvent(item, `${label}[${index}]`));
+}
+
+function normalizeProviderVisibleEvent(value: unknown, label: string): ProviderVisibleEvent {
+  const record = asRecord(value, label);
+  return {
+    kind: readOptionalString(record.kind),
+    role: readOptionalString(record.role),
+    title: readOptionalString(record.title),
+    body: readOptionalString(record.body),
+    data: readOptionalRecord(record.data),
   };
 }
 
@@ -347,6 +371,13 @@ function readOptionalNumber(value: unknown): number | undefined {
   }
 
   return Math.trunc(value);
+}
+
+function readOptionalRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
 }
 
 function dedupeStrings(values: string[]): string[] {

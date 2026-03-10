@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -152,6 +153,7 @@ func (o *Orchestrator) handlePromptSubmit(ctx context.Context, env protocol.Enve
 			"message": "task started",
 		},
 	})
+	appendProviderVisibleEvents(o.threadStore, threadID, jobID, taskHandle.ProviderEvents)
 
 	patch.JobID = jobID
 	_, _ = o.threadStore.AppendEvent(threadID, ThreadEvent{
@@ -321,6 +323,7 @@ func (o *Orchestrator) handleRunProfile(ctx context.Context, env protocol.Envelo
 			"changedFiles": changedFiles,
 		},
 	})
+	appendProviderVisibleEvents(o.threadStore, job.ThreadID, job.ID, runResult.ProviderEvents)
 
 	ack, _ := protocol.NewCmdAck(env.SID, o.nextSeq(), env.RID, true, "run started")
 	resultEnvelope, _ := protocol.NewEnvelope(env.SID, o.newID("run_result"), o.nextSeq(), protocol.TypeRunResult, protocol.RunResultPayload{
@@ -353,6 +356,37 @@ func (o *Orchestrator) handleOpenLocation(ctx context.Context, env protocol.Enve
 
 	ack, _ := protocol.NewCmdAck(env.SID, o.nextSeq(), env.RID, true, "location opened")
 	return []protocol.Envelope{ack}, nil
+}
+
+func appendProviderVisibleEvents(store *ThreadStore, threadID, jobID string, events []ProviderVisibleEvent) {
+	if store == nil || threadID == "" || len(events) == 0 {
+		return
+	}
+
+	for _, event := range events {
+		kind := strings.TrimSpace(event.Kind)
+		if kind == "" {
+			kind = "provider_message"
+		}
+		role := strings.TrimSpace(event.Role)
+		if role == "" {
+			role = "assistant"
+		}
+
+		data := map[string]any{}
+		for key, value := range event.Data {
+			data[key] = value
+		}
+
+		_, _ = store.AppendEvent(threadID, ThreadEvent{
+			JobID: jobID,
+			Kind:  kind,
+			Role:  role,
+			Title: event.Title,
+			Body:  event.Body,
+			Data:  data,
+		})
+	}
 }
 
 func (o *Orchestrator) ackFail(env protocol.Envelope, message string, err error) ([]protocol.Envelope, error) {

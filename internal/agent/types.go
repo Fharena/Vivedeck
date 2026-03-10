@@ -34,8 +34,17 @@ type SubmitTaskInput struct {
 	Context  WorkspaceContext `json:"context"`
 }
 
+type ProviderVisibleEvent struct {
+	Kind  string         `json:"kind,omitempty"`
+	Role  string         `json:"role,omitempty"`
+	Title string         `json:"title,omitempty"`
+	Body  string         `json:"body,omitempty"`
+	Data  map[string]any `json:"data,omitempty"`
+}
+
 type TaskHandle struct {
-	TaskID string `json:"taskId"`
+	TaskID         string                 `json:"taskId"`
+	ProviderEvents []ProviderVisibleEvent `json:"providerEvents,omitempty"`
 }
 
 type ApplyPatchInput struct {
@@ -61,14 +70,15 @@ type RunHandle struct {
 }
 
 type RunResult struct {
-	RunID        string                 `json:"runId"`
-	ProfileID    string                 `json:"profileId"`
-	Status       string                 `json:"status"`
-	Summary      string                 `json:"summary"`
-	TopErrors    []protocol.ParsedError `json:"topErrors,omitempty"`
-	Excerpt      string                 `json:"excerpt,omitempty"`
-	Output       string                 `json:"output,omitempty"`
-	ChangedFiles []string               `json:"changedFiles,omitempty"`
+	RunID          string                 `json:"runId"`
+	ProfileID      string                 `json:"profileId"`
+	Status         string                 `json:"status"`
+	Summary        string                 `json:"summary"`
+	TopErrors      []protocol.ParsedError `json:"topErrors,omitempty"`
+	Excerpt        string                 `json:"excerpt,omitempty"`
+	Output         string                 `json:"output,omitempty"`
+	ChangedFiles   []string               `json:"changedFiles,omitempty"`
+	ProviderEvents []ProviderVisibleEvent `json:"providerEvents,omitempty"`
 }
 
 type OpenLocationInput struct {

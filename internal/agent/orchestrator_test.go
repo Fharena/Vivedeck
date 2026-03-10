@@ -140,3 +140,64 @@ func TestOrchestratorRunProfileFlow(t *testing.T) {
 		t.Fatalf("expected last event run_finished, got %+v", detail.Events[len(detail.Events)-1])
 	}
 }
+
+type providerMockAdapter struct {
+	*MockAdapter
+}
+
+func (a *providerMockAdapter) SubmitTask(_ context.Context, _ SubmitTaskInput) (TaskHandle, error) {
+	handle, err := a.MockAdapter.SubmitTask(context.Background(), SubmitTaskInput{})
+	if err != nil {
+		return TaskHandle{}, err
+	}
+	handle.ProviderEvents = []ProviderVisibleEvent{{
+		Kind:  "provider_message",
+		Role:  "assistant",
+		Title: "Cursor 응답",
+		Body:  "문제를 분석했고 auth middleware 패치를 준비했습니다.",
+		Data:  map[string]any{"source": "cursor_agent_cli"},
+	}}
+	return handle, nil
+}
+
+func TestOrchestratorPromptSubmitAppendsProviderVisibleEvents(t *testing.T) {
+	orch := NewOrchestrator(&providerMockAdapter{MockAdapter: NewMockAdapter()}, DefaultRunProfiles(), nil)
+
+	env, err := protocol.NewEnvelope("sid-provider", "rid-provider", 1, protocol.TypePromptSubmit, protocol.PromptSubmitPayload{
+		Prompt: "Auth middleware를 고쳐줘",
+	})
+	if err != nil {
+		t.Fatalf("build envelope: %v", err)
+	}
+
+	responses, err := orch.HandleEnvelope(context.Background(), env)
+	if err != nil {
+		t.Fatalf("handle envelope: %v", err)
+	}
+
+	var promptAck protocol.PromptAckPayload
+	if err := responses[1].DecodePayload(&promptAck); err != nil {
+		t.Fatalf("decode prompt ack payload: %v", err)
+	}
+
+	detail, ok := orch.ThreadStore().Get(promptAck.ThreadID)
+	if !ok {
+		t.Fatalf("thread detail should exist")
+	}
+	if len(detail.Events) != 4 {
+		t.Fatalf("expected 4 thread events, got %+v", detail.Events)
+	}
+	providerEvent := detail.Events[2]
+	if providerEvent.Kind != "provider_message" || providerEvent.Role != "assistant" {
+		t.Fatalf("expected provider message event, got %+v", providerEvent)
+	}
+	if providerEvent.Body != "문제를 분석했고 auth middleware 패치를 준비했습니다." {
+		t.Fatalf("expected mirrored provider body, got %+v", providerEvent)
+	}
+	if providerEvent.Data["source"] != "cursor_agent_cli" {
+		t.Fatalf("expected provider source metadata, got %+v", providerEvent.Data)
+	}
+	if detail.Events[3].Kind != "patch_ready" {
+		t.Fatalf("expected patch_ready after provider event, got %+v", detail.Events[3])
+	}
+}

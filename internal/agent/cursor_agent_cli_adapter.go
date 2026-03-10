@@ -18,6 +18,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/Fharena/VibeDeck/internal/protocol"
 )
@@ -54,13 +55,14 @@ type CursorAgentCLIAdapter struct {
 }
 
 type cursorAgentTask struct {
-	TaskID    string
-	Prompt    string
-	Summary   string
-	RawDiff   string
-	Parsed    unifiedPatch
-	Patch     *protocol.PatchReadyPayload
-	CreatedAt time.Time
+	TaskID         string
+	Prompt         string
+	Summary        string
+	RawDiff        string
+	Parsed         unifiedPatch
+	Patch          *protocol.PatchReadyPayload
+	ProviderEvents []ProviderVisibleEvent
+	CreatedAt      time.Time
 }
 
 type unifiedPatch struct {
@@ -278,7 +280,10 @@ func (a *CursorAgentCLIAdapter) SubmitTask(ctx context.Context, input SubmitTask
 	a.tasks[taskID] = task
 	a.mu.Unlock()
 
-	return TaskHandle{TaskID: taskID}, nil
+	return TaskHandle{
+		TaskID:         taskID,
+		ProviderEvents: cloneProviderVisibleEvents(task.ProviderEvents),
+	}, nil
 }
 
 func (a *CursorAgentCLIAdapter) GetPatch(_ context.Context, taskID string) (*protocol.PatchReadyPayload, error) {
@@ -399,15 +404,17 @@ func (a *CursorAgentCLIAdapter) generateTask(ctx context.Context, taskID string,
 		return nil, err
 	}
 	patchPayload := parsed.toPatchReadyPayload(taskSummary(cursorOutput, parsed))
+	providerEvents := buildProviderVisibleEvents(cursorOutput, patchPayload)
 
 	return &cursorAgentTask{
-		TaskID:    taskID,
-		Prompt:    input.Prompt,
-		Summary:   patchPayload.Summary,
-		RawDiff:   rawDiff,
-		Parsed:    parsed,
-		Patch:     patchPayload,
-		CreatedAt: time.Now().UTC(),
+		TaskID:         taskID,
+		Prompt:         input.Prompt,
+		Summary:        patchPayload.Summary,
+		RawDiff:        rawDiff,
+		Parsed:         parsed,
+		Patch:          patchPayload,
+		ProviderEvents: providerEvents,
+		CreatedAt:      time.Now().UTC(),
 	}, nil
 }
 
@@ -935,6 +942,51 @@ func taskSummary(cursorOutput string, parsed unifiedPatch) string {
 	return fmt.Sprintf("Cursor Agent proposed changes in %d file(s)", len(parsed.Files))
 }
 
+func buildProviderVisibleEvents(cursorOutput string, patch *protocol.PatchReadyPayload) []ProviderVisibleEvent {
+	body := truncateVisibleText(extractCursorAgentVisibleText(cursorOutput), 4000)
+	if body == "" {
+		return nil
+	}
+
+	fileCount := 0
+	summary := ""
+	if patch != nil {
+		fileCount = len(patch.Files)
+		summary = patch.Summary
+	}
+
+	return []ProviderVisibleEvent{{
+		Kind:  "provider_message",
+		Role:  "assistant",
+		Title: "Cursor 응답",
+		Body:  body,
+		Data: map[string]any{
+			"source":    "cursor_agent_cli",
+			"summary":   summary,
+			"fileCount": fileCount,
+		},
+	}}
+}
+
+func extractCursorAgentVisibleText(output string) string {
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return ""
+	}
+
+	var parsed cursorAgentJSONOutput
+	if err := json.Unmarshal([]byte(trimmed), &parsed); err == nil {
+		for _, candidate := range []string{parsed.Text, parsed.Output, parsed.Result, parsed.Summary, parsed.Message} {
+			candidate = strings.TrimSpace(candidate)
+			if candidate != "" {
+				return candidate
+			}
+		}
+	}
+
+	return trimmed
+}
+
 func extractCursorAgentSummary(output string) string {
 	trimmed := strings.TrimSpace(output)
 	if trimmed == "" {
@@ -1014,6 +1066,40 @@ func copyFile(sourcePath, targetPath string) error {
 		return err
 	}
 	return target.Chmod(info.Mode())
+}
+
+func truncateVisibleText(value string, maxLen int) string {
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) <= maxLen {
+		return trimmed
+	}
+	if maxLen <= 3 {
+		return trimmed[:maxLen]
+	}
+	return strings.TrimRightFunc(trimmed[:maxLen-3], unicode.IsSpace) + "..."
+}
+
+func cloneProviderVisibleEvents(events []ProviderVisibleEvent) []ProviderVisibleEvent {
+	if len(events) == 0 {
+		return nil
+	}
+	out := make([]ProviderVisibleEvent, 0, len(events))
+	for _, event := range events {
+		copied := ProviderVisibleEvent{
+			Kind:  event.Kind,
+			Role:  event.Role,
+			Title: event.Title,
+			Body:  event.Body,
+		}
+		if len(event.Data) > 0 {
+			copied.Data = make(map[string]any, len(event.Data))
+			for key, value := range event.Data {
+				copied.Data[key] = value
+			}
+		}
+		out = append(out, copied)
+	}
+	return out
 }
 
 func compactMessage(value string) string {
