@@ -145,6 +145,20 @@ Cursor extension은 단순 panel이 아니라 session participant가 된다.
 - Cursor panel/runtime이 그 세션에 참여
 - native chat은 optional integration으로 취급
 
+## 세션 UX 기준
+
+Unified session의 다음 단계는 단순 상태 공유가 아니라, 사용자가 `채팅 + 작업 로그 + 터미널 + 파일 트리`를 같은 세션 표면으로 느끼게 만드는 일이다.
+
+핵심 원칙:
+
+- raw 내부 사고 대신 reasoning summary / plan trace / tool activity를 노출한다.
+- terminal output은 부가 정보가 아니라 핵심 표면으로 취급한다.
+- 파일 트리와 현재 focus file은 세션 이해를 위한 기본 표면으로 올린다.
+- bootstrap, ACK, direct signaling 같은 운영 정보는 기본 화면에서 빼고 debug surface로 내린다.
+- 모바일과 IDE 모두 Cursor 계열 dark mode 기준으로 시각 언어를 맞춘다.
+
+자세한 UX 기준은 `docs/session-ux.md`를 참조한다.
+
 ## 모바일 UI 리디자인
 
 현재 3탭 구조는 baseline으로 유지한 채, 다음 단계에서 단일 session 화면으로 통합한다.
