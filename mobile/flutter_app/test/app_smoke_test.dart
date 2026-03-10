@@ -4,7 +4,7 @@ import 'package:vibedeck_mobile/services/agent_api.dart';
 import 'package:vibedeck_mobile/state/app_controller.dart';
 
 void main() {
-  testWidgets('shows core shell labels', (tester) async {
+  testWidgets('shows unified session shell labels', (tester) async {
     final controller = AppController(api: _FakeShellAgentApi());
     addTearDown(controller.dispose);
 
@@ -12,9 +12,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('VibeDeck Mobile'), findsOneWidget);
-    expect(find.text('대화'), findsWidgets);
-    expect(find.text('검토'), findsWidgets);
-    expect(find.text('상태'), findsWidgets);
+    expect(find.text('공유 세션'), findsOneWidget);
+    expect(find.text('세션 개요'), findsOneWidget);
+    expect(find.text('패치와 실행'), findsWidgets);
+    expect(find.text('세션 센터'), findsOneWidget);
   });
 }
 

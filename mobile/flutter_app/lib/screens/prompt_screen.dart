@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../state/app_controller.dart';
+import 'review_screen.dart';
+import 'status_screen.dart';
 
 class PromptScreen extends StatefulWidget {
   const PromptScreen({
@@ -18,6 +20,7 @@ class _PromptScreenState extends State<PromptScreen> {
   final _promptController = TextEditingController(
     text: '테스트 실패 원인을 분석하고 auth middleware 패치를 제안해줘.',
   );
+  final _promptFocusNode = FocusNode();
 
   final Map<String, bool> _context = {
     'activeFile': true,
@@ -29,6 +32,7 @@ class _PromptScreenState extends State<PromptScreen> {
   @override
   void dispose() {
     _promptController.dispose();
+    _promptFocusNode.dispose();
     super.dispose();
   }
 
@@ -38,14 +42,15 @@ class _PromptScreenState extends State<PromptScreen> {
       animation: widget.controller,
       builder: (context, _) {
         final colors = Theme.of(context).colorScheme;
+        _syncPromptDraft();
 
         return ListView(
-          key: const ValueKey('thread-screen'),
+          key: const ValueKey('session-screen'),
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
           children: [
             _SectionCard(
-              title: '공유 스레드',
-              subtitle: '모바일과 IDE가 같은 작업 히스토리를 공유합니다.',
+              title: '세션 개요',
+              subtitle: '모바일과 Cursor가 하나의 세션처럼 같은 흐름을 공유합니다.',
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -54,7 +59,7 @@ class _PromptScreenState extends State<PromptScreen> {
                     runSpacing: 8,
                     children: [
                       _MetricChip(
-                        label: '현재 스레드',
+                        label: '현재 세션',
                         value: widget.controller.currentThreadTitle,
                       ),
                       _MetricChip(
@@ -68,7 +73,7 @@ class _PromptScreenState extends State<PromptScreen> {
                             : widget.controller.adapterRuntime.workspaceRoot,
                       ),
                       _MetricChip(
-                        label: '스레드 상태',
+                        label: '세션 단계',
                         value: widget.controller.currentThreadState,
                       ),
                       _MetricChip(
@@ -88,7 +93,7 @@ class _PromptScreenState extends State<PromptScreen> {
                             widget.controller.updatePromptDraft('');
                           },
                           icon: const Icon(Icons.add_comment_outlined),
-                          label: const Text('새 스레드'),
+                          label: const Text('새 세션'),
                         ),
                       ),
                     ],
@@ -98,10 +103,10 @@ class _PromptScreenState extends State<PromptScreen> {
             ),
             const SizedBox(height: 12),
             _SectionCard(
-              title: '최근 스레드',
-              subtitle: '기존 스레드를 선택하면 같은 대화를 이어서 진행합니다.',
+              title: '최근 세션',
+              subtitle: '기존 세션을 선택하면 같은 흐름을 이어서 진행합니다.',
               child: widget.controller.threads.isEmpty
-                  ? const Text('아직 생성된 스레드가 없습니다.')
+                  ? const Text('아직 생성된 세션이 없습니다.')
                   : Column(
                       children: widget.controller.threads
                           .take(6)
@@ -119,7 +124,73 @@ class _PromptScreenState extends State<PromptScreen> {
             ),
             const SizedBox(height: 12),
             _SectionCard(
-              title: '실시간 세션',
+              title: '패치와 실행',
+              subtitle: '검토와 세션 제어를 같은 화면 흐름에서 바로 이어갑니다.',
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _MetricChip(
+                        label: '현재 Job',
+                        value: widget.controller.currentJobId ?? '-',
+                      ),
+                      _MetricChip(
+                        label: '패치 파일',
+                        value: '${widget.controller.patchFiles.length}',
+                      ),
+                      _MetricChip(
+                        label: '실행 프로파일',
+                        value: '${widget.controller.runProfiles.length}',
+                      ),
+                      _MetricChip(
+                        label: 'Control Path',
+                        value: widget.controller.controlPath,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    widget.controller.patchSummary.isNotEmpty
+                        ? widget.controller.patchSummary
+                        : widget.controller.patchAvailabilityReason,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  if (widget.controller.runSummary.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      '최근 실행: ${widget.controller.runStatus.isEmpty ? '-' : widget.controller.runStatus} / ${widget.controller.runSummary}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.tonalIcon(
+                          onPressed: () => _showReviewSheet(),
+                          icon: const Icon(Icons.rule_folder_outlined),
+                          label: const Text('패치와 실행'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () => _showStatusSheet(),
+                          icon: const Icon(Icons.tune),
+                          label: const Text('세션 센터'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _SectionCard(
+              title: '공유 상태',
               subtitle: 'Cursor와 모바일의 참여자, 초안, 포커스를 같은 세션에서 공유합니다.',
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -175,10 +246,10 @@ class _PromptScreenState extends State<PromptScreen> {
             ),
             const SizedBox(height: 12),
             _SectionCard(
-              title: '대화 타임라인',
+              title: '세션 피드',
               subtitle: '프롬프트, 패치, 실행 결과가 하나의 흐름으로 누적됩니다.',
               child: widget.controller.threadEvents.isEmpty
-                  ? const Text('스레드 이벤트가 없습니다. 프롬프트를 먼저 보내보세요.')
+                  ? const Text('세션 이벤트가 없습니다. 프롬프트를 먼저 보내보세요.')
                   : Column(
                       children: widget.controller.threadEvents
                           .map((event) => _ThreadEventTile(event: event))
@@ -187,13 +258,14 @@ class _PromptScreenState extends State<PromptScreen> {
             ),
             const SizedBox(height: 12),
             _SectionCard(
-              title: '프롬프트 작성',
+              title: '요청 작성',
               subtitle: '템플릿 대신 자연어로 목적과 제약사항을 구체적으로 적습니다.',
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   TextField(
                     controller: _promptController,
+                    focusNode: _promptFocusNode,
                     minLines: 4,
                     maxLines: 7,
                     onChanged: widget.controller.updatePromptDraft,
@@ -208,7 +280,7 @@ class _PromptScreenState extends State<PromptScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Text('컨텍스트 옵션',
+                  Text('컨텍스트',
                       style: Theme.of(context).textTheme.bodyMedium),
                   const SizedBox(height: 8),
                   _ContextTile(
@@ -245,7 +317,7 @@ class _PromptScreenState extends State<PromptScreen> {
                 Expanded(
                   child: ElevatedButton.icon(
                     icon: const Icon(Icons.send_rounded),
-                    label: const Text('Prompt 제출'),
+                    label: const Text('세션에 보내기'),
                     style: ElevatedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       backgroundColor: const Color(0xFF1F8C77),
@@ -306,7 +378,7 @@ class _PromptScreenState extends State<PromptScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('공유 초안', style: Theme.of(context).textTheme.titleMedium),
+                  Text('공유 draft', style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 8),
                   Text(
                     widget.controller.liveDraftPreview.isNotEmpty
@@ -331,8 +403,110 @@ class _PromptScreenState extends State<PromptScreen> {
       },
     );
   }
-}
 
+  void _syncPromptDraft() {
+    if (_promptFocusNode.hasFocus) {
+      return;
+    }
+
+    final desiredText = widget.controller.liveDraftPreview.isNotEmpty
+        ? widget.controller.liveDraftPreview
+        : widget.controller.promptDraft;
+    if (_promptController.text == desiredText) {
+      return;
+    }
+
+    _promptController.value = _promptController.value.copyWith(
+      text: desiredText,
+      selection: TextSelection.collapsed(offset: desiredText.length),
+      composing: TextRange.empty,
+    );
+  }
+
+  Future<void> _showReviewSheet() async {
+    await _showBottomSheet(
+      title: '패치와 실행',
+      subtitle: '세션 안에서 검토와 실행 결과를 이어서 확인합니다.',
+      child: ReviewScreen(controller: widget.controller),
+    );
+  }
+
+  Future<void> _showStatusSheet() async {
+    await _showBottomSheet(
+      title: '세션 센터',
+      subtitle: '연결, bootstrap, direct signaling 상세 제어',
+      child: StatusScreen(controller: widget.controller),
+    );
+  }
+
+  Future<void> _showBottomSheet({
+    required String title,
+    required String subtitle,
+    required Widget child,
+  }) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return SafeArea(
+          child: FractionallySizedBox(
+            heightFactor: 0.94,
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFFF8FBFA),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 12),
+                  Container(
+                    width: 52,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD6E9E3),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                subtitle,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(child: child),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+}
 class _SectionCard extends StatelessWidget {
   const _SectionCard({
     required this.title,
