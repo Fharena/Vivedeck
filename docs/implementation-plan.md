@@ -162,24 +162,26 @@
 
 ## 다음 작업 우선순위
 
-1. Unified Session foundation
-   - session schema와 live state 모델 정의
-   - durable/ephemeral event 분리
-   - session stream endpoint 추가
-2. Cursor session participation
-   - extension이 focus/presence/context를 session에 publish
-   - panel을 live session participant로 승격
-3. 모바일 단일 Session UI 개편
-   - `대화/검토/상태` 분리 구조에서 session feed 중심 UI로 전환
-4. Cursor 세션 복원/로그 가시성 + stalled recovery
-5. 모바일 앱 bootstrap v3(LAN discovery/최근 세션 추천)로 수동 입력 추가 축소
+1. Session UX foundation
+   - reasoning summary / plan trace / tool activity schema 추가
+   - terminal live state 및 event schema 정의
+   - workspace tree/focus state 모델 정의
+2. Cursor panel redesign
+   - panel을 `채팅 + 작업 로그 + 터미널 + 파일 트리` 중심 레이아웃으로 개편
+   - 현재 thread viewer 성격을 shared session workspace surface로 승격
+3. 모바일 dark session shell polish
+   - Cursor 계열 dark mode 전환
+   - 기본 화면에서 bootstrap/ACK/direct signaling 카드 제거
+   - terminal drawer + file tree sheet 추가
+4. live terminal/file focus sync
+   - Cursor와 모바일이 같은 terminal tail / focused file / changed files를 공유
+5. Cursor 세션 복원/로그 가시성 + stalled recovery
 6. Windows smoke cleanup/agent 잠금 이슈 정리
 7. control timeout budget 운영 설정 외부화
 8. 설치 산출물 버전 관리/릴리스 자동화
 9. Cursor 외 provider(Codex/Claude Code/Antigravity) 확장용 adapter mode 정리
 
 주의:
-
 - provider 확장은 Cursor 기반 unified session 흐름이 충분히 완성된 뒤에 진행한다.
 - 자세한 설계와 단계 목표는 `docs/unified-session.md`를 기준으로 한다.
 
