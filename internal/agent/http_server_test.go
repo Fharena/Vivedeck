@@ -464,6 +464,12 @@ func TestHTTPServerSessionsEndpoints(t *testing.T) {
 	if detail.OperationState.PatchSummary == "" {
 		t.Fatalf("expected patch summary to be populated, got %+v", detail.OperationState)
 	}
+	if len(detail.OperationState.PatchFiles) == 0 {
+		t.Fatalf("expected patch files to be populated, got %+v", detail.OperationState)
+	}
+	if detail.LiveState.Plan.Summary == "" || len(detail.LiveState.Tools.Activities) == 0 {
+		t.Fatalf("expected live plan/tools to be populated, got %+v", detail.LiveState)
+	}
 	if detail.Session.ControlSessionID != "sid-sessions" {
 		t.Fatalf("expected detail control session id sid-sessions, got %+v", detail.Session)
 	}
@@ -476,7 +482,7 @@ func TestHTTPServerSessionLiveUpdateEndpoint(t *testing.T) {
 	server, _, _ := newTestHTTPServer()
 	sessionID := seedSharedSession(t, server, "sid-live-update", "Keep shared draft in sync")
 
-	liveBody := bytes.NewBufferString(`{"participant":{"participantId":"mobile-main","clientType":"mobile","displayName":"Pixel","active":true,"lastSeenAt":1700000000001},"composer":{"draftText":"cursor와 모바일 초안 공유","isTyping":true,"updatedAt":1700000000002},"focus":{"activeFilePath":"mobile/flutter_app/lib/screens/prompt_screen.dart","selection":"PromptScreen","updatedAt":1700000000003},"activity":{"phase":"composing","summary":"모바일에서 프롬프트 작성 중","updatedAt":1700000000004}}`)
+	liveBody := bytes.NewBufferString(`{"participant":{"participantId":"mobile-main","clientType":"mobile","displayName":"Pixel","active":true,"lastSeenAt":1700000000001},"composer":{"draftText":"cursor와 모바일 초안 공유","isTyping":true,"updatedAt":1700000000002},"focus":{"activeFilePath":"mobile/flutter_app/lib/screens/prompt_screen.dart","selection":"PromptScreen","updatedAt":1700000000003},"activity":{"phase":"composing","summary":"모바일에서 프롬프트 작성 중","updatedAt":1700000000004},"reasoning":{"title":"분석 요약","summary":"패치 준비 전 요구사항을 정리하는 중","sourceKind":"manual","updatedAt":1700000000005},"plan":{"summary":"shared session plan","items":[{"id":"sync","label":"동기화","status":"in_progress","detail":"draft 공유 중","updatedAt":1700000000006}],"updatedAt":1700000000006},"tools":{"currentLabel":"파일 검색","currentStatus":"in_progress","activities":[{"kind":"search","label":"파일 검색","status":"in_progress","detail":"prompt_screen.dart 확인 중","at":1700000000007}],"updatedAt":1700000000007},"terminal":{"status":"running","profileId":"test_all","command":"go test ./...","summary":"테스트 실행 중","updatedAt":1700000000008},"workspace":{"rootPath":"C:\\repo\\workspace","activeFilePath":"mobile/flutter_app/lib/screens/prompt_screen.dart","patchFiles":["mobile/flutter_app/lib/screens/prompt_screen.dart"],"changedFiles":["mobile/flutter_app/lib/screens/prompt_screen.dart"],"updatedAt":1700000000009}}`)
 	liveReq := httptest.NewRequest(http.MethodPost, "/v1/agent/sessions/"+sessionID+"/live", liveBody)
 	liveRec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(liveRec, liveReq)
@@ -501,8 +507,17 @@ func TestHTTPServerSessionLiveUpdateEndpoint(t *testing.T) {
 	if detail.LiveState.Activity.Summary != "모바일에서 프롬프트 작성 중" {
 		t.Fatalf("expected activity update, got %+v", detail.LiveState.Activity)
 	}
+	if detail.LiveState.Reasoning.Title != "분석 요약" || detail.LiveState.Plan.Summary != "shared session plan" {
+		t.Fatalf("expected reasoning/plan update, got %+v / %+v", detail.LiveState.Reasoning, detail.LiveState.Plan)
+	}
+	if detail.LiveState.Tools.CurrentLabel != "파일 검색" || detail.LiveState.Terminal.Command != "go test ./..." {
+		t.Fatalf("expected tools/terminal update, got %+v / %+v", detail.LiveState.Tools, detail.LiveState.Terminal)
+	}
+	if detail.LiveState.Workspace.ActiveFilePath != "mobile/flutter_app/lib/screens/prompt_screen.dart" {
+		t.Fatalf("expected workspace update, got %+v", detail.LiveState.Workspace)
+	}
 
-	clearBody := bytes.NewBufferString(`{"composer":{"draftText":"","isTyping":false,"updatedAt":0},"focus":{"activeFilePath":"","selection":"","patchPath":"","runErrorPath":"","runErrorLine":0,"updatedAt":0},"activity":{"phase":"","summary":"","updatedAt":0}}`)
+	clearBody := bytes.NewBufferString(`{"composer":{"draftText":"","isTyping":false,"updatedAt":0},"focus":{"activeFilePath":"","selection":"","patchPath":"","runErrorPath":"","runErrorLine":0,"updatedAt":0},"activity":{"phase":"","summary":"","updatedAt":0},"reasoning":{"title":"","summary":"","sourceKind":"","updatedAt":0},"plan":{"summary":"","items":[],"updatedAt":0},"tools":{"currentLabel":"","currentStatus":"","activities":[],"updatedAt":0},"terminal":{"status":"","profileId":"","label":"","command":"","summary":"","excerpt":"","output":"","updatedAt":0},"workspace":{"rootPath":"","activeFilePath":"","patchFiles":[],"changedFiles":[],"updatedAt":0}}`)
 	clearReq := httptest.NewRequest(http.MethodPost, "/v1/agent/sessions/"+sessionID+"/live", clearBody)
 	clearRec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(clearRec, clearReq)
@@ -522,6 +537,15 @@ func TestHTTPServerSessionLiveUpdateEndpoint(t *testing.T) {
 	}
 	if clearedDetail.LiveState.Activity.Phase != "" || clearedDetail.LiveState.Activity.Summary != "" {
 		t.Fatalf("expected activity override to clear, got %+v", clearedDetail.LiveState.Activity)
+	}
+	if clearedDetail.LiveState.Reasoning.Summary != "" || len(clearedDetail.LiveState.Plan.Items) != 0 {
+		t.Fatalf("expected reasoning/plan override to clear, got %+v / %+v", clearedDetail.LiveState.Reasoning, clearedDetail.LiveState.Plan)
+	}
+	if clearedDetail.LiveState.Tools.CurrentLabel != "" || clearedDetail.LiveState.Terminal.Command != "" {
+		t.Fatalf("expected tools/terminal override to clear, got %+v / %+v", clearedDetail.LiveState.Tools, clearedDetail.LiveState.Terminal)
+	}
+	if clearedDetail.LiveState.Workspace.ActiveFilePath != "" || clearedDetail.LiveState.Workspace.RootPath != "" {
+		t.Fatalf("expected workspace override to clear, got %+v", clearedDetail.LiveState.Workspace)
 	}
 }
 
@@ -565,7 +589,7 @@ func TestHTTPServerSessionStreamEndpoint(t *testing.T) {
 		ctx,
 		http.MethodPost,
 		httpServer.URL+"/v1/agent/sessions/"+sessionID+"/live",
-		bytes.NewBufferString(`{"participant":{"participantId":"cursor-panel","clientType":"cursor_panel","displayName":"Cursor Panel","active":true,"lastSeenAt":1700000000010},"composer":{"draftText":"streamed draft","isTyping":true,"updatedAt":1700000000011},"activity":{"phase":"reviewing","summary":"Cursor 패널에서 검토 중","updatedAt":1700000000012}}`),
+		bytes.NewBufferString(`{"participant":{"participantId":"cursor-panel","clientType":"cursor_panel","displayName":"Cursor Panel","active":true,"lastSeenAt":1700000000010},"composer":{"draftText":"streamed draft","isTyping":true,"updatedAt":1700000000011},"activity":{"phase":"reviewing","summary":"Cursor 패널에서 검토 중","updatedAt":1700000000012},"reasoning":{"title":"stream reasoning","summary":"패치 검토 포인트를 공유 중","sourceKind":"manual","updatedAt":1700000000013},"terminal":{"status":"running","profileId":"test_all","command":"go test ./...","summary":"running tests","updatedAt":1700000000014}}`),
 	)
 	if err != nil {
 		t.Fatalf("build live update request: %v", err)
@@ -589,6 +613,9 @@ func TestHTTPServerSessionStreamEndpoint(t *testing.T) {
 	}
 	if nextDetail.LiveState.Activity.Summary != "Cursor 패널에서 검토 중" {
 		t.Fatalf("expected streamed activity update, got %+v", nextDetail.LiveState.Activity)
+	}
+	if nextDetail.LiveState.Reasoning.Title != "stream reasoning" || nextDetail.LiveState.Terminal.Command != "go test ./..." {
+		t.Fatalf("expected streamed reasoning/terminal update, got %+v / %+v", nextDetail.LiveState.Reasoning, nextDetail.LiveState.Terminal)
 	}
 }
 

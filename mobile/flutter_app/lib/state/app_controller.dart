@@ -638,7 +638,28 @@ class AppController extends ChangeNotifier {
     if (sessionOperation.runSummary.isNotEmpty) {
       runSummary = sessionOperation.runSummary;
     }
-    if (_runChangedFiles.isEmpty && sessionOperation.currentJobFiles.isNotEmpty) {
+    if (sessionOperation.runExcerpt.isNotEmpty) {
+      runExcerpt = sessionOperation.runExcerpt;
+    }
+    if (sessionOperation.runOutput.isNotEmpty) {
+      runOutput = sessionOperation.runOutput;
+    }
+    if (topErrors.isEmpty && sessionOperation.runTopErrors.isNotEmpty) {
+      topErrors
+        ..clear()
+        ..addAll(
+          sessionOperation.runTopErrors.map(
+            (item) => item.path.isNotEmpty
+                ? '${item.path}:${item.line} ${item.message}'.trim()
+                : item.message,
+          ),
+        );
+    }
+    if (_runChangedFiles.isEmpty && sessionOperation.runChangedFiles.isNotEmpty) {
+      _runChangedFiles
+        ..clear()
+        ..addAll(sessionOperation.runChangedFiles);
+    } else if (_runChangedFiles.isEmpty && sessionOperation.currentJobFiles.isNotEmpty) {
       _runChangedFiles
         ..clear()
         ..addAll(sessionOperation.currentJobFiles);
@@ -1830,18 +1851,261 @@ class SessionActivityView {
   }
 }
 
+class SessionReasoningView {
+  const SessionReasoningView({
+    this.title = '',
+    this.summary = '',
+    this.sourceKind = '',
+    this.updatedAtMillis = 0,
+  });
+
+  final String title;
+  final String summary;
+  final String sourceKind;
+  final int updatedAtMillis;
+
+  factory SessionReasoningView.fromMap(Map<String, dynamic> map) {
+    return SessionReasoningView(
+      title: map['title']?.toString() ?? '',
+      summary: map['summary']?.toString() ?? '',
+      sourceKind: map['sourceKind']?.toString() ?? '',
+      updatedAtMillis: map['updatedAt'] is num
+          ? (map['updatedAt'] as num).toInt()
+          : int.tryParse(map['updatedAt']?.toString() ?? '') ?? 0,
+    );
+  }
+}
+
+class SessionPlanItemView {
+  const SessionPlanItemView({
+    this.id = '',
+    this.label = '',
+    this.status = '',
+    this.detail = '',
+    this.updatedAtMillis = 0,
+  });
+
+  final String id;
+  final String label;
+  final String status;
+  final String detail;
+  final int updatedAtMillis;
+
+  factory SessionPlanItemView.fromMap(Map<String, dynamic> map) {
+    return SessionPlanItemView(
+      id: map['id']?.toString() ?? '',
+      label: map['label']?.toString() ?? '',
+      status: map['status']?.toString() ?? '',
+      detail: map['detail']?.toString() ?? '',
+      updatedAtMillis: map['updatedAt'] is num
+          ? (map['updatedAt'] as num).toInt()
+          : int.tryParse(map['updatedAt']?.toString() ?? '') ?? 0,
+    );
+  }
+}
+
+class SessionPlanView {
+  const SessionPlanView({
+    this.summary = '',
+    this.items = const [],
+    this.updatedAtMillis = 0,
+  });
+
+  final String summary;
+  final List<SessionPlanItemView> items;
+  final int updatedAtMillis;
+
+  factory SessionPlanView.fromMap(Map<String, dynamic> map) {
+    final itemsRaw = map['items'];
+    return SessionPlanView(
+      summary: map['summary']?.toString() ?? '',
+      items: itemsRaw is List
+          ? itemsRaw
+                .whereType<Map>()
+                .map((item) => SessionPlanItemView.fromMap(Map<String, dynamic>.from(item)))
+                .toList()
+          : const [],
+      updatedAtMillis: map['updatedAt'] is num
+          ? (map['updatedAt'] as num).toInt()
+          : int.tryParse(map['updatedAt']?.toString() ?? '') ?? 0,
+    );
+  }
+}
+
+class SessionToolActivityView {
+  const SessionToolActivityView({
+    this.kind = '',
+    this.label = '',
+    this.status = '',
+    this.detail = '',
+    this.atMillis = 0,
+  });
+
+  final String kind;
+  final String label;
+  final String status;
+  final String detail;
+  final int atMillis;
+
+  factory SessionToolActivityView.fromMap(Map<String, dynamic> map) {
+    return SessionToolActivityView(
+      kind: map['kind']?.toString() ?? '',
+      label: map['label']?.toString() ?? '',
+      status: map['status']?.toString() ?? '',
+      detail: map['detail']?.toString() ?? '',
+      atMillis: map['at'] is num
+          ? (map['at'] as num).toInt()
+          : int.tryParse(map['at']?.toString() ?? '') ?? 0,
+    );
+  }
+}
+
+class SessionToolView {
+  const SessionToolView({
+    this.currentLabel = '',
+    this.currentStatus = '',
+    this.activities = const [],
+    this.updatedAtMillis = 0,
+  });
+
+  final String currentLabel;
+  final String currentStatus;
+  final List<SessionToolActivityView> activities;
+  final int updatedAtMillis;
+
+  factory SessionToolView.fromMap(Map<String, dynamic> map) {
+    final activitiesRaw = map['activities'];
+    return SessionToolView(
+      currentLabel: map['currentLabel']?.toString() ?? '',
+      currentStatus: map['currentStatus']?.toString() ?? '',
+      activities: activitiesRaw is List
+          ? activitiesRaw
+                .whereType<Map>()
+                .map((item) => SessionToolActivityView.fromMap(Map<String, dynamic>.from(item)))
+                .toList()
+          : const [],
+      updatedAtMillis: map['updatedAt'] is num
+          ? (map['updatedAt'] as num).toInt()
+          : int.tryParse(map['updatedAt']?.toString() ?? '') ?? 0,
+    );
+  }
+}
+
+class SessionTerminalView {
+  const SessionTerminalView({
+    this.status = '',
+    this.profileId = '',
+    this.label = '',
+    this.command = '',
+    this.summary = '',
+    this.excerpt = '',
+    this.output = '',
+    this.updatedAtMillis = 0,
+  });
+
+  final String status;
+  final String profileId;
+  final String label;
+  final String command;
+  final String summary;
+  final String excerpt;
+  final String output;
+  final int updatedAtMillis;
+
+  factory SessionTerminalView.fromMap(Map<String, dynamic> map) {
+    return SessionTerminalView(
+      status: map['status']?.toString() ?? '',
+      profileId: map['profileId']?.toString() ?? '',
+      label: map['label']?.toString() ?? '',
+      command: map['command']?.toString() ?? '',
+      summary: map['summary']?.toString() ?? '',
+      excerpt: map['excerpt']?.toString() ?? '',
+      output: map['output']?.toString() ?? '',
+      updatedAtMillis: map['updatedAt'] is num
+          ? (map['updatedAt'] as num).toInt()
+          : int.tryParse(map['updatedAt']?.toString() ?? '') ?? 0,
+    );
+  }
+}
+
+class SessionWorkspaceView {
+  const SessionWorkspaceView({
+    this.rootPath = '',
+    this.activeFilePath = '',
+    this.patchFiles = const [],
+    this.changedFiles = const [],
+    this.updatedAtMillis = 0,
+  });
+
+  final String rootPath;
+  final String activeFilePath;
+  final List<String> patchFiles;
+  final List<String> changedFiles;
+  final int updatedAtMillis;
+
+  factory SessionWorkspaceView.fromMap(Map<String, dynamic> map) {
+    final patchFilesRaw = map['patchFiles'];
+    final changedFilesRaw = map['changedFiles'];
+    return SessionWorkspaceView(
+      rootPath: map['rootPath']?.toString() ?? '',
+      activeFilePath: map['activeFilePath']?.toString() ?? '',
+      patchFiles: patchFilesRaw is List
+          ? patchFilesRaw.map((item) => item.toString()).where((item) => item.isNotEmpty).toList()
+          : const [],
+      changedFiles: changedFilesRaw is List
+          ? changedFilesRaw.map((item) => item.toString()).where((item) => item.isNotEmpty).toList()
+          : const [],
+      updatedAtMillis: map['updatedAt'] is num
+          ? (map['updatedAt'] as num).toInt()
+          : int.tryParse(map['updatedAt']?.toString() ?? '') ?? 0,
+    );
+  }
+}
+
+class SessionRunErrorView {
+  const SessionRunErrorView({
+    this.path = '',
+    this.line = 0,
+    this.message = '',
+  });
+
+  final String path;
+  final int line;
+  final String message;
+
+  factory SessionRunErrorView.fromMap(Map<String, dynamic> map) {
+    return SessionRunErrorView(
+      path: map['path']?.toString() ?? '',
+      line: map['line'] is num
+          ? (map['line'] as num).toInt()
+          : int.tryParse(map['line']?.toString() ?? '') ?? 0,
+      message: map['message']?.toString() ?? '',
+    );
+  }
+}
+
 class SessionLiveView {
   const SessionLiveView({
     this.participants = const [],
     this.composer = const SessionComposerView(),
     this.focus = const SessionFocusView(),
     this.activity = const SessionActivityView(),
+    this.reasoning = const SessionReasoningView(),
+    this.plan = const SessionPlanView(),
+    this.tools = const SessionToolView(),
+    this.terminal = const SessionTerminalView(),
+    this.workspace = const SessionWorkspaceView(),
   });
 
   final List<SessionParticipantView> participants;
   final SessionComposerView composer;
   final SessionFocusView focus;
   final SessionActivityView activity;
+  final SessionReasoningView reasoning;
+  final SessionPlanView plan;
+  final SessionToolView tools;
+  final SessionTerminalView terminal;
+  final SessionWorkspaceView workspace;
 
   factory SessionLiveView.fromMap(Map<String, dynamic> map) {
     final participantsRaw = map['participants'];
@@ -1861,6 +2125,21 @@ class SessionLiveView {
       activity: map['activity'] is Map
           ? SessionActivityView.fromMap(Map<String, dynamic>.from(map['activity'] as Map))
           : const SessionActivityView(),
+      reasoning: map['reasoning'] is Map
+          ? SessionReasoningView.fromMap(Map<String, dynamic>.from(map['reasoning'] as Map))
+          : const SessionReasoningView(),
+      plan: map['plan'] is Map
+          ? SessionPlanView.fromMap(Map<String, dynamic>.from(map['plan'] as Map))
+          : const SessionPlanView(),
+      tools: map['tools'] is Map
+          ? SessionToolView.fromMap(Map<String, dynamic>.from(map['tools'] as Map))
+          : const SessionToolView(),
+      terminal: map['terminal'] is Map
+          ? SessionTerminalView.fromMap(Map<String, dynamic>.from(map['terminal'] as Map))
+          : const SessionTerminalView(),
+      workspace: map['workspace'] is Map
+          ? SessionWorkspaceView.fromMap(Map<String, dynamic>.from(map['workspace'] as Map))
+          : const SessionWorkspaceView(),
     );
   }
 }
@@ -1870,35 +2149,79 @@ class SessionOperationView {
     this.currentJobId = '',
     this.phase = '',
     this.patchSummary = '',
+    this.patchFileCount = 0,
+    this.patchFiles = const [],
     this.patchResultStatus = '',
     this.patchResultMessage = '',
+    this.runProfileId = '',
+    this.runLabel = '',
+    this.runCommand = '',
     this.runStatus = '',
     this.runSummary = '',
+    this.runExcerpt = '',
+    this.runOutput = '',
+    this.runChangedFiles = const [],
+    this.runTopErrors = const [],
     this.currentJobFiles = const [],
+    this.lastError = '',
   });
 
   final String currentJobId;
   final String phase;
   final String patchSummary;
+  final int patchFileCount;
+  final List<String> patchFiles;
   final String patchResultStatus;
   final String patchResultMessage;
+  final String runProfileId;
+  final String runLabel;
+  final String runCommand;
   final String runStatus;
   final String runSummary;
+  final String runExcerpt;
+  final String runOutput;
+  final List<String> runChangedFiles;
+  final List<SessionRunErrorView> runTopErrors;
   final List<String> currentJobFiles;
+  final String lastError;
 
   factory SessionOperationView.fromMap(Map<String, dynamic> map) {
-    final filesRaw = map['currentJobFiles'];
+    final patchFilesRaw = map['patchFiles'];
+    final runChangedFilesRaw = map['runChangedFiles'];
+    final currentJobFilesRaw = map['currentJobFiles'];
+    final runTopErrorsRaw = map['runTopErrors'];
     return SessionOperationView(
       currentJobId: map['currentJobId']?.toString() ?? '',
       phase: map['phase']?.toString() ?? '',
       patchSummary: map['patchSummary']?.toString() ?? '',
+      patchFileCount: map['patchFileCount'] is num
+          ? (map['patchFileCount'] as num).toInt()
+          : int.tryParse(map['patchFileCount']?.toString() ?? '') ?? 0,
+      patchFiles: patchFilesRaw is List
+          ? patchFilesRaw.map((item) => item.toString()).where((item) => item.isNotEmpty).toList()
+          : const [],
       patchResultStatus: map['patchResultStatus']?.toString() ?? '',
       patchResultMessage: map['patchResultMessage']?.toString() ?? '',
+      runProfileId: map['runProfileId']?.toString() ?? '',
+      runLabel: map['runLabel']?.toString() ?? '',
+      runCommand: map['runCommand']?.toString() ?? '',
       runStatus: map['runStatus']?.toString() ?? '',
       runSummary: map['runSummary']?.toString() ?? '',
-      currentJobFiles: filesRaw is List
-          ? filesRaw.map((item) => item.toString()).where((item) => item.isNotEmpty).toList()
+      runExcerpt: map['runExcerpt']?.toString() ?? '',
+      runOutput: map['runOutput']?.toString() ?? '',
+      runChangedFiles: runChangedFilesRaw is List
+          ? runChangedFilesRaw.map((item) => item.toString()).where((item) => item.isNotEmpty).toList()
           : const [],
+      runTopErrors: runTopErrorsRaw is List
+          ? runTopErrorsRaw
+                .whereType<Map>()
+                .map((item) => SessionRunErrorView.fromMap(Map<String, dynamic>.from(item)))
+                .toList()
+          : const [],
+      currentJobFiles: currentJobFilesRaw is List
+          ? currentJobFilesRaw.map((item) => item.toString()).where((item) => item.isNotEmpty).toList()
+          : const [],
+      lastError: map['lastError']?.toString() ?? '',
     );
   }
 }

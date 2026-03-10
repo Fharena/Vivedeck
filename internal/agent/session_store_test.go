@@ -42,6 +42,8 @@ func TestSessionStoreBuildsReadModelFromThreadDetail(t *testing.T) {
 			"profileId": "test_all",
 			"status":    "failed",
 			"summary":   "tests failed",
+			"excerpt":   "FAIL\tmiddleware",
+			"output":    "FAIL\tmiddleware\nexpected 200",
 			"changedFiles": []string{
 				"middleware/auth.go",
 			},
@@ -85,6 +87,18 @@ func TestSessionStoreBuildsReadModelFromThreadDetail(t *testing.T) {
 	if detail.OperationState.LastError != "tests failed" {
 		t.Fatalf("expected last error tests failed, got %+v", detail.OperationState)
 	}
+	if len(detail.OperationState.PatchFiles) != 1 || detail.OperationState.PatchFiles[0] != "middleware/auth.go" {
+		t.Fatalf("expected patch files to include middleware/auth.go, got %+v", detail.OperationState.PatchFiles)
+	}
+	if detail.OperationState.RunExcerpt != "FAIL\tmiddleware" || detail.OperationState.RunOutput == "" {
+		t.Fatalf("expected run terminal fields, got %+v", detail.OperationState)
+	}
+	if len(detail.OperationState.RunChangedFiles) != 1 || detail.OperationState.RunChangedFiles[0] != "middleware/auth.go" {
+		t.Fatalf("expected run changed files to include middleware/auth.go, got %+v", detail.OperationState.RunChangedFiles)
+	}
+	if len(detail.OperationState.RunTopErrors) != 1 || detail.OperationState.RunTopErrors[0].Path != "middleware/auth_test.go" {
+		t.Fatalf("expected run top errors to be populated, got %+v", detail.OperationState.RunTopErrors)
+	}
 	if len(detail.OperationState.CurrentJobFiles) != 1 || detail.OperationState.CurrentJobFiles[0] != "middleware/auth.go" {
 		t.Fatalf("expected current job files to include middleware/auth.go, got %+v", detail.OperationState.CurrentJobFiles)
 	}
@@ -99,6 +113,21 @@ func TestSessionStoreBuildsReadModelFromThreadDetail(t *testing.T) {
 	}
 	if detail.LiveState.Focus.RunErrorPath != "middleware/auth_test.go" || detail.LiveState.Focus.RunErrorLine != 27 {
 		t.Fatalf("expected run error focus from top errors, got %+v", detail.LiveState.Focus)
+	}
+	if detail.LiveState.Reasoning.Summary != "tests failed" || detail.LiveState.Reasoning.SourceKind != "run_finished" {
+		t.Fatalf("expected reasoning summary from latest agent event, got %+v", detail.LiveState.Reasoning)
+	}
+	if len(detail.LiveState.Plan.Items) != 4 || detail.LiveState.Plan.Items[3].Status != "failed" {
+		t.Fatalf("expected plan trace to be populated, got %+v", detail.LiveState.Plan)
+	}
+	if len(detail.LiveState.Tools.Activities) != 3 || detail.LiveState.Tools.CurrentStatus != "failed" {
+		t.Fatalf("expected tool activities to be populated, got %+v", detail.LiveState.Tools)
+	}
+	if detail.LiveState.Terminal.Status != "failed" || detail.LiveState.Terminal.Output == "" {
+		t.Fatalf("expected terminal state to be populated, got %+v", detail.LiveState.Terminal)
+	}
+	if detail.LiveState.Workspace.RootPath != `C:\repo\workspace` || detail.LiveState.Workspace.ActiveFilePath != "middleware/auth.go" {
+		t.Fatalf("expected workspace state to be populated, got %+v", detail.LiveState.Workspace)
 	}
 }
 
@@ -124,6 +153,37 @@ func TestSessionStoreMergesLiveOverrides(t *testing.T) {
 		Selection:      "build",
 		UpdatedAt:      102,
 	})
+	store.UpdateReasoning("thread-override", SessionReasoningState{
+		Title:      "분석 요약",
+		Summary:    "모바일과 Cursor가 같은 세션을 보고 있습니다.",
+		SourceKind: "manual",
+		UpdatedAt:  103,
+	})
+	store.UpdatePlan("thread-override", SessionPlanState{
+		Summary:   "공통 세션 계획",
+		Items:     []SessionPlanItem{{ID: "sync", Label: "동기화", Status: "in_progress", Detail: "양쪽 draft를 맞추는 중", UpdatedAt: 104}},
+		UpdatedAt: 104,
+	})
+	store.UpdateTools("thread-override", SessionToolState{
+		CurrentLabel:  "파일 탐색",
+		CurrentStatus: "in_progress",
+		Activities:    []SessionToolActivity{{Kind: "scan", Label: "파일 탐색", Status: "in_progress", Detail: "lib 폴더 확인 중", At: 105}},
+		UpdatedAt:     105,
+	})
+	store.UpdateTerminal("thread-override", SessionTerminalState{
+		Status:    "running",
+		ProfileID: "test_all",
+		Command:   "go test ./...",
+		Summary:   "테스트 실행 중",
+		UpdatedAt: 106,
+	})
+	store.UpdateWorkspace("thread-override", SessionWorkspaceState{
+		RootPath:       `C:\repo\workspace`,
+		ActiveFilePath: "mobile/app.dart",
+		PatchFiles:     []string{"mobile/app.dart"},
+		ChangedFiles:   []string{"mobile/app.dart"},
+		UpdatedAt:      107,
+	})
 
 	detail, ok := store.Get("thread-override")
 	if !ok {
@@ -140,6 +200,15 @@ func TestSessionStoreMergesLiveOverrides(t *testing.T) {
 	}
 	if detail.LiveState.Focus.ActiveFilePath != "mobile/app.dart" || detail.LiveState.Focus.Selection != "build" {
 		t.Fatalf("expected focus override, got %+v", detail.LiveState.Focus)
+	}
+	if detail.LiveState.Reasoning.Title != "분석 요약" || detail.LiveState.Plan.Summary != "공통 세션 계획" {
+		t.Fatalf("expected reasoning/plan override, got %+v / %+v", detail.LiveState.Reasoning, detail.LiveState.Plan)
+	}
+	if detail.LiveState.Tools.CurrentLabel != "파일 탐색" || detail.LiveState.Terminal.Command != "go test ./..." {
+		t.Fatalf("expected tools/terminal override, got %+v / %+v", detail.LiveState.Tools, detail.LiveState.Terminal)
+	}
+	if detail.LiveState.Workspace.ActiveFilePath != "mobile/app.dart" || len(detail.LiveState.Workspace.PatchFiles) != 1 {
+		t.Fatalf("expected workspace override, got %+v", detail.LiveState.Workspace)
 	}
 }
 
@@ -163,10 +232,43 @@ func TestSessionStoreLiveOverridesCanClearFields(t *testing.T) {
 		Summary:   "Cursor가 검토 중",
 		UpdatedAt: 203,
 	})
+	store.UpdateReasoning("thread-clear", SessionReasoningState{
+		Title:      "요약",
+		Summary:    "reasoning",
+		SourceKind: "manual",
+		UpdatedAt:  204,
+	})
+	store.UpdatePlan("thread-clear", SessionPlanState{
+		Summary:   "plan",
+		Items:     []SessionPlanItem{{ID: "a", Label: "A", Status: "completed", UpdatedAt: 205}},
+		UpdatedAt: 205,
+	})
+	store.UpdateTools("thread-clear", SessionToolState{
+		CurrentLabel:  "tool",
+		CurrentStatus: "completed",
+		Activities:    []SessionToolActivity{{Kind: "tool", Label: "tool", Status: "completed", At: 206}},
+		UpdatedAt:     206,
+	})
+	store.UpdateTerminal("thread-clear", SessionTerminalState{
+		Status:    "completed",
+		ProfileID: "test_all",
+		Command:   "go test ./...",
+		UpdatedAt: 207,
+	})
+	store.UpdateWorkspace("thread-clear", SessionWorkspaceState{
+		RootPath:       `C:\repo\workspace`,
+		ActiveFilePath: "lib/main.dart",
+		UpdatedAt:      208,
+	})
 
 	store.UpdateComposer("thread-clear", SessionComposerState{})
 	store.UpdateFocus("thread-clear", SessionFocusState{})
 	store.UpdateActivity("thread-clear", SessionActivityState{})
+	store.UpdateReasoning("thread-clear", SessionReasoningState{})
+	store.UpdatePlan("thread-clear", SessionPlanState{})
+	store.UpdateTools("thread-clear", SessionToolState{})
+	store.UpdateTerminal("thread-clear", SessionTerminalState{})
+	store.UpdateWorkspace("thread-clear", SessionWorkspaceState{})
 
 	detail, ok := store.Get("thread-clear")
 	if !ok {
@@ -180,5 +282,14 @@ func TestSessionStoreLiveOverridesCanClearFields(t *testing.T) {
 	}
 	if detail.LiveState.Activity.Phase != "" || detail.LiveState.Activity.Summary != "" {
 		t.Fatalf("expected activity override to clear, got %+v", detail.LiveState.Activity)
+	}
+	if detail.LiveState.Reasoning.Summary != "" || len(detail.LiveState.Plan.Items) != 0 {
+		t.Fatalf("expected reasoning/plan override to clear, got %+v / %+v", detail.LiveState.Reasoning, detail.LiveState.Plan)
+	}
+	if detail.LiveState.Tools.CurrentLabel != "" || detail.LiveState.Terminal.Command != "" {
+		t.Fatalf("expected tools/terminal override to clear, got %+v / %+v", detail.LiveState.Tools, detail.LiveState.Terminal)
+	}
+	if detail.LiveState.Workspace.ActiveFilePath != "" || detail.LiveState.Workspace.RootPath != "" {
+		t.Fatalf("expected workspace override to clear, got %+v", detail.LiveState.Workspace)
 	}
 }

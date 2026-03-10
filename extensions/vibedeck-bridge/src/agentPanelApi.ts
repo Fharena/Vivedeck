@@ -72,22 +72,96 @@ export interface AgentPanelSessionActivityState {
   updatedAt: number;
 }
 
+export interface AgentPanelSessionReasoningState {
+  title: string;
+  summary: string;
+  sourceKind: string;
+  updatedAt: number;
+}
+
+export interface AgentPanelSessionPlanItem {
+  id: string;
+  label: string;
+  status: string;
+  detail: string;
+  updatedAt: number;
+}
+
+export interface AgentPanelSessionPlanState {
+  summary: string;
+  items: AgentPanelSessionPlanItem[];
+  updatedAt: number;
+}
+
+export interface AgentPanelSessionToolActivity {
+  kind: string;
+  label: string;
+  status: string;
+  detail: string;
+  at: number;
+}
+
+export interface AgentPanelSessionToolState {
+  currentLabel: string;
+  currentStatus: string;
+  activities: AgentPanelSessionToolActivity[];
+  updatedAt: number;
+}
+
+export interface AgentPanelSessionTerminalState {
+  status: string;
+  profileId: string;
+  label: string;
+  command: string;
+  summary: string;
+  excerpt: string;
+  output: string;
+  updatedAt: number;
+}
+
+export interface AgentPanelSessionWorkspaceState {
+  rootPath: string;
+  activeFilePath: string;
+  patchFiles: string[];
+  changedFiles: string[];
+  updatedAt: number;
+}
+
+export interface AgentPanelSessionRunError {
+  path: string;
+  line: number;
+  message: string;
+}
+
 export interface AgentPanelSessionLiveState {
   participants: AgentPanelSessionParticipant[];
   composer: AgentPanelSessionComposerState;
   focus: AgentPanelSessionFocusState;
   activity: AgentPanelSessionActivityState;
+  reasoning: AgentPanelSessionReasoningState;
+  plan: AgentPanelSessionPlanState;
+  tools: AgentPanelSessionToolState;
+  terminal: AgentPanelSessionTerminalState;
+  workspace: AgentPanelSessionWorkspaceState;
 }
 
 export interface AgentPanelSessionOperationState {
   currentJobId: string;
   phase: string;
   patchSummary: string;
+  patchFileCount: number;
+  patchFiles: string[];
   patchResultStatus: string;
   patchResultMessage: string;
   runProfileId: string;
+  runLabel: string;
+  runCommand: string;
   runStatus: string;
   runSummary: string;
+  runExcerpt: string;
+  runOutput: string;
+  runChangedFiles: string[];
+  runTopErrors: AgentPanelSessionRunError[];
   currentJobFiles: string[];
   lastError: string;
 }
@@ -523,6 +597,11 @@ function normalizeLiveState(value: Record<string, unknown>): AgentPanelSessionLi
   const composer = objectValue(value.composer);
   const focus = objectValue(value.focus);
   const activity = objectValue(value.activity);
+  const reasoning = objectValue(value.reasoning);
+  const plan = objectValue(value.plan);
+  const tools = objectValue(value.tools);
+  const terminal = objectValue(value.terminal);
+  const workspace = objectValue(value.workspace);
   return {
     participants: objectArray(value.participants).map((item) => ({
       participantId: text(item.participantId),
@@ -549,6 +628,52 @@ function normalizeLiveState(value: Record<string, unknown>): AgentPanelSessionLi
       summary: text(activity.summary),
       updatedAt: numberValue(activity.updatedAt),
     },
+    reasoning: {
+      title: text(reasoning.title),
+      summary: text(reasoning.summary),
+      sourceKind: text(reasoning.sourceKind),
+      updatedAt: numberValue(reasoning.updatedAt),
+    },
+    plan: {
+      summary: text(plan.summary),
+      items: objectArray(plan.items).map((item) => ({
+        id: text(item.id),
+        label: text(item.label),
+        status: text(item.status),
+        detail: text(item.detail),
+        updatedAt: numberValue(item.updatedAt),
+      })),
+      updatedAt: numberValue(plan.updatedAt),
+    },
+    tools: {
+      currentLabel: text(tools.currentLabel),
+      currentStatus: text(tools.currentStatus),
+      activities: objectArray(tools.activities).map((item) => ({
+        kind: text(item.kind),
+        label: text(item.label),
+        status: text(item.status),
+        detail: text(item.detail),
+        at: numberValue(item.at),
+      })),
+      updatedAt: numberValue(tools.updatedAt),
+    },
+    terminal: {
+      status: text(terminal.status),
+      profileId: text(terminal.profileId),
+      label: text(terminal.label),
+      command: text(terminal.command),
+      summary: text(terminal.summary),
+      excerpt: text(terminal.excerpt),
+      output: text(terminal.output),
+      updatedAt: numberValue(terminal.updatedAt),
+    },
+    workspace: {
+      rootPath: text(workspace.rootPath),
+      activeFilePath: text(workspace.activeFilePath),
+      patchFiles: stringArray(workspace.patchFiles),
+      changedFiles: stringArray(workspace.changedFiles),
+      updatedAt: numberValue(workspace.updatedAt),
+    },
   };
 }
 
@@ -559,11 +684,23 @@ function normalizeOperationState(
     currentJobId: text(value.currentJobId),
     phase: text(value.phase),
     patchSummary: text(value.patchSummary),
+    patchFileCount: numberValue(value.patchFileCount),
+    patchFiles: stringArray(value.patchFiles),
     patchResultStatus: text(value.patchResultStatus),
     patchResultMessage: text(value.patchResultMessage),
     runProfileId: text(value.runProfileId),
+    runLabel: text(value.runLabel),
+    runCommand: text(value.runCommand),
     runStatus: text(value.runStatus),
     runSummary: text(value.runSummary),
+    runExcerpt: text(value.runExcerpt),
+    runOutput: text(value.runOutput),
+    runChangedFiles: stringArray(value.runChangedFiles),
+    runTopErrors: objectArray(value.runTopErrors).map((item) => ({
+      path: text(item.path),
+      line: numberValue(item.line),
+      message: text(item.message),
+    })),
     currentJobFiles: stringArray(value.currentJobFiles),
     lastError: text(value.lastError),
   };
@@ -612,6 +749,26 @@ function emptyLiveState(): AgentPanelSessionLiveState {
       updatedAt: 0,
     },
     activity: { phase: "", summary: "", updatedAt: 0 },
+    reasoning: { title: "", summary: "", sourceKind: "", updatedAt: 0 },
+    plan: { summary: "", items: [], updatedAt: 0 },
+    tools: { currentLabel: "", currentStatus: "", activities: [], updatedAt: 0 },
+    terminal: {
+      status: "",
+      profileId: "",
+      label: "",
+      command: "",
+      summary: "",
+      excerpt: "",
+      output: "",
+      updatedAt: 0,
+    },
+    workspace: {
+      rootPath: "",
+      activeFilePath: "",
+      patchFiles: [],
+      changedFiles: [],
+      updatedAt: 0,
+    },
   };
 }
 
@@ -620,11 +777,19 @@ function emptyOperationState(): AgentPanelSessionOperationState {
     currentJobId: "",
     phase: "",
     patchSummary: "",
+    patchFileCount: 0,
+    patchFiles: [],
     patchResultStatus: "",
     patchResultMessage: "",
     runProfileId: "",
+    runLabel: "",
+    runCommand: "",
     runStatus: "",
     runSummary: "",
+    runExcerpt: "",
+    runOutput: "",
+    runChangedFiles: [],
+    runTopErrors: [],
     currentJobFiles: [],
     lastError: "",
   };
