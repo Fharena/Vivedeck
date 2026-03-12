@@ -32,6 +32,10 @@ import {
   createMobileBootstrapController,
   type MobileBootstrapController,
 } from "./mobileBootstrapController.js";
+import {
+  formatCursorChatObservabilityReport,
+  probeCursorChatObservability,
+} from "./cursorChatProbe.js";
 
 type BridgeMode = "command" | "mock";
 type CommandProviderMode = "builtin_cursor_agent" | "external";
@@ -269,6 +273,11 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
     context.subscriptions.push(
       this.vscode.commands.registerCommand("vibedeckBridge.copyMobileBootstrap", async () => {
         await this.mobileBootstrap.copyLink();
+      }),
+    );
+    context.subscriptions.push(
+      this.vscode.commands.registerCommand("vibedeckBridge.probeCursorChat", async () => {
+        return await this.probeCursorChat();
       }),
     );
     context.subscriptions.push(
@@ -576,6 +585,24 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
     }
 
     void this.vscode.window.showInformationMessage(message);
+  }
+
+  private async probeCursorChat(): Promise<string> {
+    const report = await probeCursorChatObservability(this.vscode as Parameters<typeof probeCursorChatObservability>[0]);
+    const message = formatCursorChatObservabilityReport(report);
+    await this.vscode.env.clipboard.writeText(message);
+
+    const summary =
+      "VibeDeck Cursor 채팅 진단을 마쳤습니다. " +
+      report.conclusions.summary +
+      " 자세한 결과를 클립보드에 복사했습니다.";
+    if (report.conclusions.canInspectNativeTranscript) {
+      void this.vscode.window.showInformationMessage(summary);
+    } else {
+      void this.vscode.window.showWarningMessage(summary);
+    }
+
+    return message;
   }
 
   private async validateCommands(

@@ -26,7 +26,8 @@
     "onCommand:vibedeckBridge.stopAgent",
     "onCommand:vibedeckBridge.restartAgent",
     "onCommand:vibedeckBridge.openMobileBootstrap",
-    "onCommand:vibedeckBridge.copyMobileBootstrap"
+    "onCommand:vibedeckBridge.copyMobileBootstrap",
+    "onCommand:vibedeckBridge.probeCursorChat"
   ],
   "contributes": {
     "commands": [
@@ -77,6 +78,10 @@
       {
         "command": "vibedeckBridge.copyMobileBootstrap",
         "title": "VibeDeck: Copy Mobile Bootstrap Link"
+      },
+      {
+        "command": "vibedeckBridge.probeCursorChat",
+        "title": "VibeDeck: Cursor 채팅 관측 범위 진단"
       }
     ],
     "configuration": {
@@ -337,6 +342,7 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "smoke:provider": "npm run build && node ./scripts/command_provider_smoke.mjs",
     "smoke:extension": "npm run build && node ./scripts/extension_runtime_smoke.mjs",
+    "smoke:chat-probe": "npm run build && node ./scripts/cursor_chat_probe_smoke.mjs",
     "package:vsix": "npm run build && node ./scripts/package_vsix.mjs",
     "smoke:panel": "npm run build && node ./scripts/thread_panel_smoke.mjs",
     "smoke:bootstrap": "npm run build && node ./scripts/bootstrap_runtime_smoke.mjs",
