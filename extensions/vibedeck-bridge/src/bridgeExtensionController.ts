@@ -36,6 +36,10 @@ import {
   formatCursorChatObservabilityReport,
   probeCursorChatObservability,
 } from "./cursorChatProbe.js";
+import {
+  formatCursorPromptSubmitReport,
+  probeCursorPromptSubmitPath,
+} from "./cursorPromptSubmitProbe.js";
 
 type BridgeMode = "command" | "mock";
 type CommandProviderMode = "builtin_cursor_agent" | "external";
@@ -278,6 +282,11 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
     context.subscriptions.push(
       this.vscode.commands.registerCommand("vibedeckBridge.probeCursorChat", async () => {
         return await this.probeCursorChat();
+      }),
+    );
+    context.subscriptions.push(
+      this.vscode.commands.registerCommand("vibedeckBridge.probeCursorPromptSubmit", async () => {
+        return await this.probeCursorPromptSubmit();
       }),
     );
     context.subscriptions.push(
@@ -605,6 +614,23 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
     return message;
   }
 
+  private async probeCursorPromptSubmit(): Promise<string> {
+    const report = await probeCursorPromptSubmitPath(this.vscode as Parameters<typeof probeCursorPromptSubmitPath>[0]);
+    const message = formatCursorPromptSubmitReport(report);
+    await this.vscode.env.clipboard.writeText(message);
+
+    const summary =
+      "VibeDeck Cursor 프롬프트 전송 경로 진단을 마쳤습니다. " +
+      report.recommendedStrategy.summary +
+      " 자세한 결과를 클립보드에 복사했습니다.";
+    if (report.recommendedStrategy.canAutomateSubmit) {
+      void this.vscode.window.showInformationMessage(summary);
+    } else {
+      void this.vscode.window.showWarningMessage(summary);
+    }
+
+    return message;
+  }
   private async validateCommands(
     showMessage: boolean,
   ): Promise<BridgeCommandDiagnostics | undefined> {
