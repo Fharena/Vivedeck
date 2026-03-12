@@ -28,7 +28,8 @@
     "onCommand:vibedeckBridge.openMobileBootstrap",
     "onCommand:vibedeckBridge.copyMobileBootstrap",
     "onCommand:vibedeckBridge.probeCursorChat",
-    "onCommand:vibedeckBridge.probeCursorPromptSubmit"
+    "onCommand:vibedeckBridge.probeCursorPromptSubmit",
+    "onCommand:vibedeckBridge.probeCursorChatStorage"
   ],
   "contributes": {
     "commands": [
@@ -86,7 +87,11 @@
       },
       {
         "command": "vibedeckBridge.probeCursorPromptSubmit",
-        "title": "VibeDeck: Cursor ???? ?? ?? ??"
+        "title": "VibeDeck: Cursor 채팅 전송 경로 진단"
+      },
+      {
+        "command": "vibedeckBridge.probeCursorChatStorage",
+        "title": "VibeDeck: Cursor 채팅 저장소 진단"
       }
     ],
     "configuration": {
@@ -352,7 +357,8 @@
     "package:vsix": "npm run build && node ./scripts/package_vsix.mjs",
     "smoke:panel": "npm run build && node ./scripts/thread_panel_smoke.mjs",
     "smoke:bootstrap": "npm run build && node ./scripts/bootstrap_runtime_smoke.mjs",
-    "smoke:mobile-bootstrap": "npm run build && node ./scripts/mobile_bootstrap_smoke.mjs"
+    "smoke:mobile-bootstrap": "npm run build && node ./scripts/mobile_bootstrap_smoke.mjs",
+    "smoke:storage-probe": "npm run build && node ./scripts/cursor_chat_storage_probe_smoke.mjs"
   },
   "dependencies": {
     "@vibedeck/cursor-bridge": "file:../../adapters/cursor-bridge",

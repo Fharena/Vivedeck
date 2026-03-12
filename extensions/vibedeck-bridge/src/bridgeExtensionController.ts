@@ -40,6 +40,10 @@ import {
   formatCursorPromptSubmitReport,
   probeCursorPromptSubmitPath,
 } from "./cursorPromptSubmitProbe.js";
+import {
+  formatCursorChatStorageReport,
+  probeCursorChatStorage,
+} from "./cursorChatStorageProbe.js";
 
 type BridgeMode = "command" | "mock";
 type CommandProviderMode = "builtin_cursor_agent" | "external";
@@ -287,6 +291,11 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
     context.subscriptions.push(
       this.vscode.commands.registerCommand("vibedeckBridge.probeCursorPromptSubmit", async () => {
         return await this.probeCursorPromptSubmit();
+      }),
+    );
+    context.subscriptions.push(
+      this.vscode.commands.registerCommand("vibedeckBridge.probeCursorChatStorage", async () => {
+        return await this.probeCursorChatStorage();
       }),
     );
     context.subscriptions.push(
@@ -602,9 +611,9 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
     await this.vscode.env.clipboard.writeText(message);
 
     const summary =
-      "VibeDeck Cursor 채팅 진단을 마쳤습니다. " +
+      "VibeDeck Cursor \uCC44\uD305 \uC9C4\uB2E8\uC744 \uB9C8\uCCE4\uC2B5\uB2C8\uB2E4. " +
       report.conclusions.summary +
-      " 자세한 결과를 클립보드에 복사했습니다.";
+      " \uC790\uC138\uD55C \uACB0\uACFC\uB97C \uD074\uB9BD\uBCF4\uB4DC\uC5D0 \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.";
     if (report.conclusions.canInspectNativeTranscript) {
       void this.vscode.window.showInformationMessage(summary);
     } else {
@@ -631,6 +640,25 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
 
     return message;
   }
+
+  private async probeCursorChatStorage(): Promise<string> {
+    const report = await probeCursorChatStorage();
+    const message = formatCursorChatStorageReport(report);
+    await this.vscode.env.clipboard.writeText(message);
+
+    const summary =
+      "VibeDeck Cursor \uCC44\uD305 \uC800\uC7A5\uC18C \uC9C4\uB2E8\uC744 \uB9C8\uCCE4\uC2B5\uB2C8\uB2E4. " +
+      report.conclusions.summary +
+      " \uC790\uC138\uD55C \uACB0\uACFC\uB97C \uD074\uB9BD\uBCF4\uB4DC\uC5D0 \uBCF5\uC0AC\uD588\uC2B5\uB2C8\uB2E4.";
+    if (report.conclusions.canReadStorage) {
+      void this.vscode.window.showInformationMessage(summary);
+    } else {
+      void this.vscode.window.showWarningMessage(summary);
+    }
+
+    return message;
+  }
+
   private async validateCommands(
     showMessage: boolean,
   ): Promise<BridgeCommandDiagnostics | undefined> {
