@@ -41,6 +41,10 @@ import {
   probeCursorPromptSubmitPath,
 } from "./cursorPromptSubmitProbe.js";
 import {
+  submitCursorNativePrompt,
+  type CursorNativePromptSubmitResult,
+} from "./cursorNativePromptSubmit.js";
+import {
   formatCursorChatStorageReport,
   probeCursorChatStorage,
 } from "./cursorChatStorageProbe.js";
@@ -94,6 +98,11 @@ export interface BridgeExtensionWindowLike {
   showInformationMessage(message: string): unknown;
   showWarningMessage(message: string): unknown;
   showErrorMessage(message: string): unknown;
+  showInputBox?(options?: {
+    prompt?: string;
+    placeHolder?: string;
+    value?: string;
+  }): Promise<string | undefined> | Thenable<string | undefined>;
   createStatusBarItem(alignment: number, priority?: number): BridgeExtensionStatusBarItemLike;
   createWebviewPanel(
     viewType: string,
@@ -122,6 +131,7 @@ export interface BridgeExtensionWorkspaceLike {
 export interface BridgeExtensionEnvLike {
   clipboard: {
     writeText(text: string): Promise<void>;
+    readText?(): Promise<string>;
   };
 }
 
@@ -291,6 +301,11 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
     context.subscriptions.push(
       this.vscode.commands.registerCommand("vibedeckBridge.probeCursorPromptSubmit", async () => {
         return await this.probeCursorPromptSubmit();
+      }),
+    );
+    context.subscriptions.push(
+      this.vscode.commands.registerCommand("vibedeckBridge.submitCursorPrompt", async (...args) => {
+        return await this.submitCursorPromptCommand(args[0]);
       }),
     );
     context.subscriptions.push(
@@ -639,6 +654,54 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
     }
 
     return message;
+  }
+
+  private async submitCursorPromptCommand(
+    promptArg: unknown,
+  ): Promise<CursorNativePromptSubmitResult | undefined> {
+    const prompt = await this.resolveCursorPromptText(promptArg);
+    if (!prompt) {
+      return undefined;
+    }
+
+    const result = await submitCursorNativePrompt(
+      this.vscode as Parameters<typeof submitCursorNativePrompt>[0],
+      prompt,
+    );
+
+    const summary = "VibeDeck tried a Cursor native prompt submit. " + result.summary;
+    if (result.status === "submitted") {
+      void this.vscode.window.showInformationMessage(summary);
+    } else if (result.status === "draft_inserted") {
+      void this.vscode.window.showWarningMessage(summary);
+    } else {
+      void this.vscode.window.showWarningMessage(summary);
+    }
+
+    return result;
+  }
+
+  private async resolveCursorPromptText(promptArg: unknown): Promise<string | undefined> {
+    if (typeof promptArg === "string" && promptArg.trim().length > 0) {
+      return promptArg.trim();
+    }
+
+    if (!this.vscode.window.showInputBox) {
+      void this.vscode.window.showWarningMessage(
+        "A prompt string is required to submit into Cursor.",
+      );
+      return undefined;
+    }
+
+    const value = await this.vscode.window.showInputBox({
+      prompt: "Prompt to send into the Cursor native chat",
+      placeHolder: "Example: explain the auth failure and propose a fix",
+    });
+    const normalized = value?.trim() ?? "";
+    if (!normalized) {
+      return undefined;
+    }
+    return normalized;
   }
 
   private async probeCursorChatStorage(): Promise<string> {
