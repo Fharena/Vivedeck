@@ -43,6 +43,17 @@ export interface AgentPanelThreadEvent {
   at: number;
 }
 
+export interface AgentPanelTimelineEventInput {
+  id?: string;
+  jobId?: string;
+  kind: string;
+  role?: string;
+  title?: string;
+  body?: string;
+  data?: Record<string, unknown>;
+  at?: number;
+}
+
 export interface AgentPanelSessionParticipant {
   participantId: string;
   clientType: string;
@@ -227,6 +238,11 @@ export interface AgentPanelApi {
     sessionId: string,
     update: Record<string, unknown>,
   ): Promise<AgentPanelThreadDetail>;
+  appendSessionTimelineEvents(
+    baseUrl: string,
+    sessionId: string,
+    events: readonly AgentPanelTimelineEventInput[],
+  ): Promise<AgentPanelThreadDetail>;
   threads(baseUrl: string): Promise<AgentPanelThreadSummary[]>;
   threadDetail(baseUrl: string, threadId: string): Promise<AgentPanelThreadDetail>;
   sendEnvelope(
@@ -359,6 +375,20 @@ class DefaultAgentPanelApi implements AgentPanelApi {
       `/v1/agent/sessions/${encodeURIComponent(sessionId)}/live`,
       "POST",
       update,
+    );
+    return normalizeSessionDetail(body);
+  }
+
+  async appendSessionTimelineEvents(
+    baseUrl: string,
+    sessionId: string,
+    events: readonly AgentPanelTimelineEventInput[],
+  ): Promise<AgentPanelThreadDetail> {
+    const body = await requestJson(
+      baseUrl,
+      `/v1/agent/sessions/${encodeURIComponent(sessionId)}/events`,
+      "POST",
+      { events },
     );
     return normalizeSessionDetail(body);
   }

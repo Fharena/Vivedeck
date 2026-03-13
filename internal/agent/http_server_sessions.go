@@ -20,6 +20,21 @@ type SessionLiveUpdateRequest struct {
 	Workspace   *SessionWorkspaceState `json:"workspace,omitempty"`
 }
 
+type SessionTimelineAppendEvent struct {
+	ID    string         `json:"id,omitempty"`
+	JobID string         `json:"jobId,omitempty"`
+	Kind  string         `json:"kind"`
+	Role  string         `json:"role,omitempty"`
+	Title string         `json:"title,omitempty"`
+	Body  string         `json:"body,omitempty"`
+	Data  map[string]any `json:"data,omitempty"`
+	At    int64          `json:"at,omitempty"`
+}
+
+type SessionTimelineAppendRequest struct {
+	Events []SessionTimelineAppendEvent `json:"events"`
+}
+
 func (s *HTTPServer) handleSessionPath(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/v1/agent/sessions/"))
 	path = strings.Trim(path, "/")
@@ -47,6 +62,9 @@ func (s *HTTPServer) handleSessionPath(w http.ResponseWriter, r *http.Request) {
 			return
 		case "live":
 			s.handleSessionLiveUpdate(w, r, sessionID)
+			return
+		case "events":
+			s.handleSessionTimelineAppend(w, r, sessionID)
 			return
 		}
 	}
@@ -116,6 +134,71 @@ func (s *HTTPServer) handleSessionLiveUpdate(w http.ResponseWriter, r *http.Requ
 	}
 	if req.Workspace != nil {
 		store.UpdateWorkspace(sessionID, *req.Workspace)
+	}
+
+	detail, ok := store.Get(sessionID)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
+func (s *HTTPServer) handleSessionTimelineAppend(w http.ResponseWriter, r *http.Request, sessionID string) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	store := s.sessionStore()
+	if store == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+	if _, ok := store.Get(sessionID); !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+	if s.orchestrator == nil || s.orchestrator.ThreadStore() == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session thread store not found"})
+		return
+	}
+
+	var req SessionTimelineAppendRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid session timeline append request"})
+		return
+	}
+	if len(req.Events) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "at least one event is required"})
+		return
+	}
+
+	threadStore := s.orchestrator.ThreadStore()
+	for _, item := range req.Events {
+		kind := strings.TrimSpace(item.Kind)
+		if kind == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "event kind is required"})
+			return
+		}
+		role := strings.TrimSpace(item.Role)
+		if role == "" {
+			role = "system"
+		}
+		if _, err := threadStore.AppendEvent(sessionID, ThreadEvent{
+			ID:       strings.TrimSpace(item.ID),
+			ThreadID: sessionID,
+			JobID:    strings.TrimSpace(item.JobID),
+			Kind:     kind,
+			Role:     role,
+			Title:    strings.TrimSpace(item.Title),
+			Body:     strings.TrimSpace(item.Body),
+			Data:     item.Data,
+			At:       item.At,
+		}); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
 	}
 
 	detail, ok := store.Get(sessionID)
