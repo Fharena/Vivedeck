@@ -19,6 +19,8 @@ void main() {
     expect(controller.patchFiles, hasLength(1));
     expect(controller.patchFiles.single.path, 'lib/session.dart');
     expect(controller.threadEvents, hasLength(2));
+    expect(controller.sessionSyncStatus, SessionSyncStatus.live);
+    expect(controller.sessionLastSyncedAt, greaterThan(0));
   });
 
   test('applies live session stream updates', () async {
@@ -36,12 +38,39 @@ void main() {
     expect(controller.liveParticipantCount, 1);
     expect(controller.liveActivitySummary, 'Cursor에서 초안 작성 중');
   });
+
+  test('marks sync failed after stream interruption and recovers on retry',
+      () async {
+    final api = FakeSharedSessionAgentApi();
+    final controller = AppController(
+      api: api,
+      sessionSyncReconnectDelay: const Duration(milliseconds: 10),
+      sessionSyncMaxReconnectAttempts: 1,
+    );
+
+    addTearDown(controller.dispose);
+
+    await controller.refreshStatus();
+    api.failSessionDetail = true;
+    api.emitStreamError('sleep-resume disconnect');
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    expect(controller.sessionSyncStatus, SessionSyncStatus.failed);
+    expect(controller.sessionSyncDetail, contains('세션 동기화 요청이 실패했습니다.'));
+
+    api.failSessionDetail = false;
+    await controller.retrySessionSync();
+
+    expect(controller.sessionSyncStatus, SessionSyncStatus.live);
+    expect(controller.sessionSyncDetail, isEmpty);
+  });
 }
 
 class FakeSharedSessionAgentApi extends AgentApi {
   final StreamController<Map<String, dynamic>> _streamController =
       StreamController<Map<String, dynamic>>.broadcast();
   late Map<String, dynamic> _detail = _buildDetail();
+  bool failSessionDetail = false;
 
   @override
   Future<Map<String, dynamic>> bootstrap(String baseUrl) async {
@@ -155,7 +184,11 @@ class FakeSharedSessionAgentApi extends AgentApi {
   }
 
   @override
-  Future<Map<String, dynamic>> sessionDetail(String baseUrl, String sessionId) async {
+  Future<Map<String, dynamic>> sessionDetail(
+      String baseUrl, String sessionId) async {
+    if (failSessionDetail) {
+      throw AgentApiException(503, 'session sync unavailable');
+    }
     return _detail;
   }
 
@@ -192,6 +225,10 @@ class FakeSharedSessionAgentApi extends AgentApi {
       'liveState': liveState,
     };
     return _detail;
+  }
+
+  void emitStreamError(String message) {
+    _streamController.addError(AgentApiException(503, message));
   }
 
   void pushLiveDraft(String draft) {
@@ -313,7 +350,8 @@ class FakeSharedSessionAgentApi extends AgentApi {
   }
 
   @override
-  Future<Map<String, dynamic>> threadDetail(String baseUrl, String threadId) async {
+  Future<Map<String, dynamic>> threadDetail(
+      String baseUrl, String threadId) async {
     throw UnsupportedError('legacy thread detail api should not be used');
   }
 

@@ -68,7 +68,8 @@ class _PromptScreenState extends State<PromptScreen> {
                       ),
                       _MetricChip(
                         label: '작업 디렉토리',
-                        value: widget.controller.adapterRuntime.workspaceRoot.isEmpty
+                        value: widget
+                                .controller.adapterRuntime.workspaceRoot.isEmpty
                             ? '-'
                             : widget.controller.adapterRuntime.workspaceRoot,
                       ),
@@ -113,7 +114,8 @@ class _PromptScreenState extends State<PromptScreen> {
                           .map(
                             (thread) => _ThreadTile(
                               thread: thread,
-                              selected: thread.id == widget.controller.currentThreadId,
+                              selected: thread.id ==
+                                  widget.controller.currentThreadId,
                               onTap: () async {
                                 await widget.controller.selectThread(thread.id);
                               },
@@ -246,6 +248,12 @@ class _PromptScreenState extends State<PromptScreen> {
             ),
             const SizedBox(height: 12),
             _SectionCard(
+              title: '동기화 상태',
+              subtitle: '절전이나 네트워크 흔들림 이후에도 연결 상태와 복구 단계를 바로 보여줍니다.',
+              child: _SessionSyncPanel(controller: widget.controller),
+            ),
+            const SizedBox(height: 12),
+            _SectionCard(
               title: '세션 피드',
               subtitle: '프롬프트, 패치, 실행 결과가 하나의 흐름으로 누적됩니다.',
               child: widget.controller.threadEvents.isEmpty
@@ -280,8 +288,7 @@ class _PromptScreenState extends State<PromptScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Text('컨텍스트',
-                      style: Theme.of(context).textTheme.bodyMedium),
+                  Text('컨텍스트', style: Theme.of(context).textTheme.bodyMedium),
                   const SizedBox(height: 8),
                   _ContextTile(
                     label: '활성 파일',
@@ -378,7 +385,8 @@ class _PromptScreenState extends State<PromptScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('공유 draft', style: Theme.of(context).textTheme.titleMedium),
+                  Text('공유 draft',
+                      style: Theme.of(context).textTheme.titleMedium),
                   const SizedBox(height: 8),
                   Text(
                     widget.controller.liveDraftPreview.isNotEmpty
@@ -395,7 +403,8 @@ class _PromptScreenState extends State<PromptScreen> {
               const SizedBox(height: 12),
               Text(
                 widget.controller.errorMessage!,
-                style: TextStyle(color: colors.error, fontWeight: FontWeight.w700),
+                style:
+                    TextStyle(color: colors.error, fontWeight: FontWeight.w700),
               ),
             ],
           ],
@@ -505,8 +514,122 @@ class _PromptScreenState extends State<PromptScreen> {
       },
     );
   }
-
 }
+
+class _SessionSyncPanel extends StatelessWidget {
+  const _SessionSyncPanel({required this.controller});
+
+  final AppController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final textTheme = Theme.of(context).textTheme;
+    late final Color tone;
+    late final IconData icon;
+    switch (controller.sessionSyncStatus) {
+      case SessionSyncStatus.live:
+        tone = const Color(0xFF1F8C77);
+        icon = Icons.cloud_done_outlined;
+        break;
+      case SessionSyncStatus.stale:
+        tone = const Color(0xFFD97706);
+        icon = Icons.schedule_outlined;
+        break;
+      case SessionSyncStatus.reconnecting:
+        tone = const Color(0xFF2563EB);
+        icon = Icons.autorenew_rounded;
+        break;
+      case SessionSyncStatus.failed:
+        tone = colors.error;
+        icon = Icons.sync_problem_outlined;
+        break;
+      case SessionSyncStatus.idle:
+        tone = colors.outline;
+        icon = Icons.link_outlined;
+        break;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: tone.withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: tone.withValues(alpha: 0.28)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 18, color: tone),
+                  const SizedBox(width: 8),
+                  Text(
+                    controller.sessionSyncStatusLabel,
+                    style: textTheme.labelLarge?.copyWith(
+                      color: tone,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _MetricChip(
+              label: '마지막 동기화',
+              value: controller.sessionLastSyncedLabel,
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text(
+          controller.sessionSyncSummary,
+          style: textTheme.bodyMedium,
+        ),
+        if (controller.sessionSyncDetail.trim().isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(
+            controller.sessionSyncDetail,
+            style: textTheme.bodySmall?.copyWith(color: tone),
+          ),
+        ],
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.tonalIcon(
+                onPressed: controller.canRetrySessionSync
+                    ? () async {
+                        await controller.retrySessionSync();
+                      }
+                    : null,
+                icon: const Icon(Icons.autorenew_rounded),
+                label: const Text('다시 연결'),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: controller.canRefreshSessionSync
+                    ? () async {
+                        await controller.refreshCurrentSession();
+                      }
+                    : null,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('세션 새로고침'),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
 class _SectionCard extends StatelessWidget {
   const _SectionCard({
     required this.title,
@@ -621,15 +744,15 @@ class _ThreadEventTile extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
               ),
-              Text(event.atLabel,
-                  style: Theme.of(context).textTheme.bodySmall),
+              Text(event.atLabel, style: Theme.of(context).textTheme.bodySmall),
             ],
           ),
           if (event.body.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(event.body),
           ],
-          if (event.data['status'] != null || event.data['profileId'] != null) ...[
+          if (event.data['status'] != null ||
+              event.data['profileId'] != null) ...[
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
