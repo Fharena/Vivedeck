@@ -30,7 +30,8 @@
     "onCommand:vibedeckBridge.probeCursorChat",
     "onCommand:vibedeckBridge.probeCursorPromptSubmit",
     "onCommand:vibedeckBridge.submitCursorPrompt",
-    "onCommand:vibedeckBridge.probeCursorChatStorage"
+    "onCommand:vibedeckBridge.probeCursorChatStorage",
+    "onCommand:vibedeckBridge.inspectCursorChatLinks"
   ],
   "contributes": {
     "commands": [
@@ -92,11 +93,15 @@
       },
       {
         "command": "vibedeckBridge.submitCursorPrompt",
-        "title": "VibeDeck: Send Prompt To Cursor Chat"
+        "title": "VibeDeck: Cursor 기본 채팅 프롬프트 보내기"
       },
       {
         "command": "vibedeckBridge.probeCursorChatStorage",
         "title": "VibeDeck: Cursor 채팅 저장소 진단"
+      },
+      {
+        "command": "vibedeckBridge.inspectCursorChatLinks",
+        "title": "VibeDeck: Cursor 채팅 연결 상태 진단"
       }
     ],
     "configuration": {
@@ -364,7 +369,8 @@
     "smoke:panel": "npm run build && node ./scripts/thread_panel_smoke.mjs",
     "smoke:bootstrap": "npm run build && node ./scripts/bootstrap_runtime_smoke.mjs",
     "smoke:mobile-bootstrap": "npm run build && node ./scripts/mobile_bootstrap_smoke.mjs",
-    "smoke:storage-probe": "npm run build && node ./scripts/cursor_chat_storage_probe_smoke.mjs"
+    "smoke:storage-probe": "npm run build && node ./scripts/cursor_chat_storage_probe_smoke.mjs",
+    "smoke:chat-link": "npm run build && node ./scripts/cursor_chat_link_tracker_smoke.mjs"
   },
   "dependencies": {
     "@vibedeck/cursor-bridge": "file:../../adapters/cursor-bridge",

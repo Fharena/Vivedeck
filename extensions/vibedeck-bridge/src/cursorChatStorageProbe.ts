@@ -1,16 +1,21 @@
-﻿import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 export interface CursorChatStorageConversationSummary {
   readonly composerId: string;
   readonly createdAt: string;
+  readonly updatedAt: string;
   readonly status: string;
   readonly isAgentic: boolean;
   readonly headerCount: number;
   readonly contextCount: number;
   readonly firstUserText: string;
   readonly firstAssistantText: string;
+  readonly latestUserText: string;
+  readonly latestAssistantText: string;
+  readonly latestUserAt: string;
+  readonly latestAssistantAt: string;
 }
 
 export interface CursorChatStorageReport {
@@ -72,6 +77,11 @@ const PYTHON_SCRIPT = [
   "            return 0",
   "    return 0",
   "",
+  "def stringify_timestamp(timestamp_ms):",
+  "    if not isinstance(timestamp_ms, (int, float)) or timestamp_ms <= 0:",
+  "        return ''",
+  "    return datetime.datetime.utcfromtimestamp(int(timestamp_ms) / 1000).isoformat() + 'Z'",
+  "",
   "def flatten_rich_text(node):",
   "    if isinstance(node, dict):",
   "        if isinstance(node.get('text'), str) and node.get('text').strip():",
@@ -121,6 +131,11 @@ const PYTHON_SCRIPT = [
   "    headers = data.get('fullConversationHeadersOnly') or []",
   "    first_user = ''",
   "    first_assistant = ''",
+  "    latest_user = ''",
+  "    latest_assistant = ''",
+  "    latest_user_at = 0",
+  "    latest_assistant_at = 0",
+  "    latest_activity_at = normalize_created_at(data.get('createdAt'))",
   "    for header in headers:",
   "        if not isinstance(header, dict):",
   "            continue",
@@ -137,12 +152,19 @@ const PYTHON_SCRIPT = [
   "            continue",
   "        bubble_text = extract_text(bubble)",
   "        bubble_type = bubble.get('type')",
+  "        bubble_created_at = normalize_created_at(bubble.get('createdAt'))",
+  "        if bubble_created_at > latest_activity_at:",
+  "            latest_activity_at = bubble_created_at",
   "        if bubble_type == 1 and bubble_text and not first_user:",
   "            first_user = bubble_text",
   "        if bubble_type == 2 and bubble_text and not first_assistant:",
   "            first_assistant = bubble_text",
-  "        if first_user and first_assistant:",
-  "            break",
+  "        if bubble_type == 1 and bubble_text and bubble_created_at >= latest_user_at:",
+  "            latest_user = bubble_text",
+  "            latest_user_at = bubble_created_at",
+  "        if bubble_type == 2 and bubble_text and bubble_created_at >= latest_assistant_at:",
+  "            latest_assistant = bubble_text",
+  "            latest_assistant_at = bubble_created_at",
   "    if not headers and not first_user and not first_assistant:",
   "        continue",
   "    context_for_composer = cur.execute(\"SELECT COUNT(*) FROM cursorDiskKV WHERE key LIKE ?\", (f'messageRequestContext:{composer_id}:%',)).fetchone()[0]",
@@ -154,15 +176,20 @@ const PYTHON_SCRIPT = [
   "    recent.append({",
   "        'composerId': composer_id,",
   "        'createdAt': created_at,",
+  "        'updatedAt': stringify_timestamp(latest_activity_at) or created_at,",
   "        'status': data.get('status') or '',",
   "        'isAgentic': bool(data.get('isAgentic')),",
   "        'headerCount': len(headers),",
   "        'contextCount': int(context_for_composer),",
   "        'firstUserText': first_user,",
   "        'firstAssistantText': first_assistant,",
+  "        'latestUserText': latest_user,",
+  "        'latestAssistantText': latest_assistant,",
+  "        'latestUserAt': stringify_timestamp(latest_user_at),",
+  "        'latestAssistantAt': stringify_timestamp(latest_assistant_at),",
   "    })",
-  "    if len(recent) >= limit:",
-  "        break",
+  "recent.sort(key=lambda item: normalize_created_at(item.get('updatedAt') or item.get('createdAt')), reverse=True)",
+  "recent = recent[:limit]",
   "",
   "print(json.dumps({",
   "    'composerCount': len(parsed),",
@@ -243,10 +270,12 @@ export function formatCursorChatStorageReport(report: CursorChatStorageReport): 
     lines.push("recent conversations:");
     for (const conversation of report.conversations) {
       lines.push(
-        `- ${conversation.composerId} | ${conversation.createdAt || "(no timestamp)"} | status=${conversation.status || "(none)"} | agentic=${conversation.isAgentic ? "yes" : "no"} | headers=${conversation.headerCount} | context=${conversation.contextCount}`,
+        `- ${conversation.composerId} | created=${conversation.createdAt || "(no timestamp)"} | updated=${conversation.updatedAt || "(no timestamp)"} | status=${conversation.status || "(none)"} | agentic=${conversation.isAgentic ? "yes" : "no"} | headers=${conversation.headerCount} | context=${conversation.contextCount}`,
       );
       lines.push(`  user: ${truncatePreview(conversation.firstUserText)}`);
       lines.push(`  assistant: ${truncatePreview(conversation.firstAssistantText)}`);
+      lines.push(`  latest user: ${truncatePreview(conversation.latestUserText)}`);
+      lines.push(`  latest assistant: ${truncatePreview(conversation.latestAssistantText)}`);
     }
   }
 
@@ -385,6 +414,11 @@ function summarizeConversationsFromRows(
       : [];
     let firstUserText = "";
     let firstAssistantText = "";
+    let latestUserText = "";
+    let latestAssistantText = "";
+    let latestUserAt = 0;
+    let latestAssistantAt = 0;
+    let latestActivityAt = normalizeCreatedAt(row.data.createdAt);
 
     for (const header of headers) {
       const bubbleId = typeof header?.bubbleId === "string" ? header.bubbleId : undefined;
@@ -406,14 +440,23 @@ function summarizeConversationsFromRows(
       }
       const bubbleText = extractBubbleText(bubble);
       const bubbleType = typeof bubble.type === "number" ? bubble.type : 0;
+      const bubbleCreatedAt = normalizeCreatedAt(bubble.createdAt);
+      if (bubbleCreatedAt > latestActivityAt) {
+        latestActivityAt = bubbleCreatedAt;
+      }
       if (bubbleType === 1 && bubbleText && !firstUserText) {
         firstUserText = bubbleText;
       }
       if (bubbleType === 2 && bubbleText && !firstAssistantText) {
         firstAssistantText = bubbleText;
       }
-      if (firstUserText && firstAssistantText) {
-        break;
+      if (bubbleType === 1 && bubbleText && bubbleCreatedAt >= latestUserAt) {
+        latestUserText = bubbleText;
+        latestUserAt = bubbleCreatedAt;
+      }
+      if (bubbleType === 2 && bubbleText && bubbleCreatedAt >= latestAssistantAt) {
+        latestAssistantText = bubbleText;
+        latestAssistantAt = bubbleCreatedAt;
       }
     }
 
@@ -429,19 +472,27 @@ function summarizeConversationsFromRows(
     conversations.push({
       composerId,
       createdAt: stringifyCreatedAt(row.data.createdAt),
+      updatedAt: stringifyCreatedAt(latestActivityAt || row.data.createdAt),
       status: typeof row.data.status === "string" ? row.data.status : "",
       isAgentic: Boolean(row.data.isAgentic),
       headerCount: headers.length,
       contextCount,
       firstUserText,
       firstAssistantText,
+      latestUserText,
+      latestAssistantText,
+      latestUserAt: stringifyCreatedAt(latestUserAt),
+      latestAssistantAt: stringifyCreatedAt(latestAssistantAt),
     });
-    if (conversations.length >= maxConversations) {
-      break;
-    }
   }
 
-  return conversations;
+  return conversations
+    .sort(
+      (left, right) =>
+        normalizeCreatedAt(right.updatedAt || right.createdAt) -
+        normalizeCreatedAt(left.updatedAt || left.createdAt),
+    )
+    .slice(0, maxConversations);
 }
 
 function extractBubbleText(bubble: Record<string, unknown>): string {
