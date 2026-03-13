@@ -48,6 +48,11 @@ import {
   formatCursorChatStorageReport,
   probeCursorChatStorage,
 } from "./cursorChatStorageProbe.js";
+import {
+  createCursorChatLinkTracker,
+  formatCursorChatLinkTrackerReport,
+  type CursorChatLinkTracker,
+} from "./cursorChatLinkTracker.js";
 
 type BridgeMode = "command" | "mock";
 type CommandProviderMode = "builtin_cursor_agent" | "external";
@@ -192,6 +197,17 @@ export interface BridgeExtensionControllerDependencies {
   localAgent?: LocalAgentController;
 }
 
+interface CursorPromptSubmitRequest {
+  readonly prompt: string;
+  readonly threadId: string;
+}
+
+export interface CursorPromptSubmitCommandResult extends CursorNativePromptSubmitResult {
+  readonly threadId?: string;
+  readonly linkState?: "linked" | "pending" | "skipped";
+  readonly composerId?: string;
+}
+
 export function createBridgeExtensionController(
   vscodeLike: BridgeExtensionVscodeLike,
   dependencies: BridgeExtensionControllerDependencies = {},
@@ -204,6 +220,7 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
   private readonly localAgent: LocalAgentController;
   private readonly threadPanel: ThreadPanelController;
   private readonly mobileBootstrap: MobileBootstrapController;
+  private readonly cursorChatLinks: CursorChatLinkTracker;
   private activeBridge: ActiveBridge | undefined;
   private statusBarItem: BridgeExtensionStatusBarItemLike | undefined;
   private lastBridgeError: string | undefined;
@@ -223,6 +240,7 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
       });
     this.threadPanel = createThreadPanelController(this.vscode);
     this.mobileBootstrap = createMobileBootstrapController(this.vscode);
+    this.cursorChatLinks = createCursorChatLinkTracker();
   }
 
   async activate(context: BridgeExtensionContextLike): Promise<void> {
@@ -314,6 +332,11 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
       }),
     );
     context.subscriptions.push(
+      this.vscode.commands.registerCommand("vibedeckBridge.inspectCursorChatLinks", async () => {
+        return await this.inspectCursorChatLinks();
+      }),
+    );
+    context.subscriptions.push(
       this.vscode.workspace.onDidChangeConfiguration((event) => {
         if (!event.affectsConfiguration("vibedeckBridge")) {
           return;
@@ -331,6 +354,7 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
   }
 
   async deactivate(): Promise<void> {
+    this.cursorChatLinks.dispose();
     this.mobileBootstrap.dispose();
     this.threadPanel.dispose();
     await this.stopServer(false);
@@ -658,50 +682,144 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
 
   private async submitCursorPromptCommand(
     promptArg: unknown,
-  ): Promise<CursorNativePromptSubmitResult | undefined> {
-    const prompt = await this.resolveCursorPromptText(promptArg);
-    if (!prompt) {
+  ): Promise<CursorPromptSubmitCommandResult | undefined> {
+    const request = await this.resolveCursorPromptRequest(promptArg);
+    if (!request) {
       return undefined;
     }
 
+    const submittedAt = new Date().toISOString();
     const result = await submitCursorNativePrompt(
       this.vscode as Parameters<typeof submitCursorNativePrompt>[0],
-      prompt,
+      request.prompt,
     );
 
-    const summary = "VibeDeck tried a Cursor native prompt submit. " + result.summary;
-    if (result.status === "submitted") {
+    let linkState: CursorPromptSubmitCommandResult["linkState"] = "skipped";
+    let composerId: string | undefined;
+
+    if (
+      request.threadId &&
+      (result.status === "submitted" || result.status === "draft_inserted")
+    ) {
+      const snapshot = await this.cursorChatLinks.notePromptSubmission({
+        threadId: request.threadId,
+        prompt: request.prompt,
+        submitStatus: result.status,
+        strategyKind: result.strategyKind,
+        submittedAt,
+      });
+      const linked = snapshot.linkedThreads.find(
+        (item) => item.threadId === request.threadId,
+      );
+      if (linked) {
+        linkState = "linked";
+        composerId = linked.composerId;
+      } else {
+        linkState = "pending";
+      }
+    }
+
+    let summary = "VibeDeck Cursor 기본 채팅으로 프롬프트 제출을 시도했습니다. " + result.summary;
+    if (request.threadId && linkState === "linked" && composerId) {
+      summary += ` thread ${request.threadId}를 composer ${composerId}와 연결했습니다.`;
+    } else if (request.threadId && linkState === "pending") {
+      summary += ` thread ${request.threadId}는 아직 연결 대기 중이며 storage poller가 계속 확인합니다.`;
+    }
+
+    if (result.status === "submitted" && linkState !== "pending") {
       void this.vscode.window.showInformationMessage(summary);
-    } else if (result.status === "draft_inserted") {
-      void this.vscode.window.showWarningMessage(summary);
     } else {
       void this.vscode.window.showWarningMessage(summary);
     }
 
-    return result;
+    return {
+      ...result,
+      threadId: request.threadId || undefined,
+      linkState,
+      composerId,
+    };
   }
 
-  private async resolveCursorPromptText(promptArg: unknown): Promise<string | undefined> {
-    if (typeof promptArg === "string" && promptArg.trim().length > 0) {
-      return promptArg.trim();
+  private async resolveCursorPromptRequest(
+    promptArg: unknown,
+  ): Promise<CursorPromptSubmitRequest | undefined> {
+    const fromArg = this.readPromptSubmitArgument(promptArg);
+    if (fromArg) {
+      return fromArg;
     }
 
     if (!this.vscode.window.showInputBox) {
       void this.vscode.window.showWarningMessage(
-        "A prompt string is required to submit into Cursor.",
+        "Cursor 기본 채팅으로 보낼 프롬프트 문자열이 필요합니다.",
       );
       return undefined;
     }
 
     const value = await this.vscode.window.showInputBox({
-      prompt: "Prompt to send into the Cursor native chat",
-      placeHolder: "Example: explain the auth failure and propose a fix",
+      prompt: "Cursor 기본 채팅으로 보낼 프롬프트를 입력하세요",
+      placeHolder: "예: auth 실패 원인을 설명하고 수정 방향을 제안해줘",
     });
     const normalized = value?.trim() ?? "";
     if (!normalized) {
       return undefined;
     }
-    return normalized;
+    return {
+      prompt: normalized,
+      threadId: "",
+    };
+  }
+
+  private readPromptSubmitArgument(
+    promptArg: unknown,
+  ): CursorPromptSubmitRequest | undefined {
+    if (typeof promptArg === "string" && promptArg.trim()) {
+      return {
+        prompt: promptArg.trim(),
+        threadId: "",
+      };
+    }
+
+    if (!promptArg || typeof promptArg !== "object") {
+      return undefined;
+    }
+
+    const record = promptArg as Record<string, unknown>;
+    const prompt = typeof record.prompt === "string" ? record.prompt.trim() : "";
+    if (!prompt) {
+      return undefined;
+    }
+    const threadId =
+      typeof record.threadId === "string" && record.threadId.trim()
+        ? record.threadId.trim()
+        : typeof record.sessionId === "string" && record.sessionId.trim()
+          ? record.sessionId.trim()
+          : "";
+    return {
+      prompt,
+      threadId,
+    };
+  }
+
+  private async inspectCursorChatLinks(): Promise<string> {
+    const snapshot = await this.cursorChatLinks.refreshNow();
+    const message = formatCursorChatLinkTrackerReport(snapshot);
+    await this.vscode.env.clipboard.writeText(message);
+
+    let summary = "VibeDeck Cursor 채팅 연결 상태를 진단했고 자세한 결과를 클립보드에 복사했습니다.";
+    if (snapshot.linkedThreads.length > 0) {
+      summary += ` 현재 ${snapshot.linkedThreads.length}개 thread가 composer와 연결되어 있습니다.`;
+      void this.vscode.window.showInformationMessage(summary);
+    } else if (snapshot.pendingSubmissions.length > 0) {
+      summary += ` 아직 연결 대기 중인 제출이 ${snapshot.pendingSubmissions.length}개 있습니다.`;
+      void this.vscode.window.showWarningMessage(summary);
+    } else if (snapshot.lastError) {
+      summary += ` 마지막 오류: ${snapshot.lastError}`;
+      void this.vscode.window.showWarningMessage(summary);
+    } else {
+      void this.vscode.window.showInformationMessage(summary);
+    }
+
+    return message;
   }
 
   private async probeCursorChatStorage(): Promise<string> {
