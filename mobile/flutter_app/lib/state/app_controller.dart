@@ -10,19 +10,38 @@ import '../services/signaling_api.dart';
 
 typedef DirectSessionFactory = MobileDirectSignalingSession Function();
 
+enum SessionSyncStatus {
+  idle,
+  live,
+  stale,
+  reconnecting,
+  failed,
+}
+
 class AppController extends ChangeNotifier {
   AppController({
     AgentApi? api,
     DirectSessionFactory? directSessionFactory,
     AppSettingsStore? settingsStore,
+    Duration sessionSyncStaleAfter = const Duration(seconds: 20),
+    Duration sessionSyncReconnectDelay = const Duration(seconds: 3),
+    int sessionSyncMaxReconnectAttempts = 3,
   })  : _api = api ?? AgentApi(),
         _directSessionFactory =
             directSessionFactory ?? MobileDirectSignalingSession.new,
-        _settingsStore = settingsStore ?? InMemoryAppSettingsStore();
+        _settingsStore = settingsStore ?? InMemoryAppSettingsStore(),
+        _sessionSyncStaleAfter = sessionSyncStaleAfter,
+        _sessionSyncReconnectDelay = sessionSyncReconnectDelay,
+        _sessionSyncMaxReconnectAttempts = sessionSyncMaxReconnectAttempts < 1
+            ? 1
+            : sessionSyncMaxReconnectAttempts;
 
   final AgentApi _api;
   final DirectSessionFactory _directSessionFactory;
   final AppSettingsStore _settingsStore;
+  final Duration _sessionSyncStaleAfter;
+  final Duration _sessionSyncReconnectDelay;
+  final int _sessionSyncMaxReconnectAttempts;
 
   String agentBaseUrl = 'http://127.0.0.1:8080';
   String signalingBaseUrl = 'http://127.0.0.1:8081';
@@ -79,6 +98,9 @@ class AppController extends ChangeNotifier {
 
   SessionLiveView liveSession = const SessionLiveView();
   SessionOperationView sessionOperation = const SessionOperationView();
+  SessionSyncStatus sessionSyncStatus = SessionSyncStatus.idle;
+  String sessionSyncDetail = '';
+  int sessionLastSyncedAt = 0;
 
   UnmodifiableListView<RunProfileView> get runProfiles =>
       UnmodifiableListView(_runProfiles);
@@ -104,8 +126,11 @@ class AppController extends ChangeNotifier {
 
   Timer? _sessionPresenceTimer;
   Timer? _promptDraftSyncTimer;
+  Timer? _sessionSyncWatchdogTimer;
+  Timer? _sessionSyncRetryTimer;
   String _sessionStreamThreadId = '';
   String _sessionStreamBaseUrl = '';
+  int _sessionSyncReconnectAttempts = 0;
 
   int _seq = 1;
 
@@ -131,10 +156,12 @@ class AppController extends ChangeNotifier {
   }
 
   String get currentThreadState => selectedThreadSummary?.state ?? 'draft';
-  String get currentSessionPhase =>
-      sessionOperation.phase.isNotEmpty ? sessionOperation.phase : currentThreadState;
-  int get liveParticipantCount =>
-      liveSession.participants.where((participant) => participant.active).length;
+  String get currentSessionPhase => sessionOperation.phase.isNotEmpty
+      ? sessionOperation.phase
+      : currentThreadState;
+  int get liveParticipantCount => liveSession.participants
+      .where((participant) => participant.active)
+      .length;
   String get liveParticipantSummary {
     if (liveSession.participants.isEmpty) {
       return '참여자 없음';
@@ -170,6 +197,48 @@ class AppController extends ChangeNotifier {
 
   String get liveDraftPreview => liveSession.composer.draftText;
   bool get liveComposerTyping => liveSession.composer.isTyping;
+  bool get hasSessionSyncTarget => currentThreadId.isNotEmpty;
+  bool get canRetrySessionSync => hasSessionSyncTarget && !isLoading;
+  bool get canRefreshSessionSync => hasSessionSyncTarget && !isLoading;
+
+  String get sessionSyncStatusLabel {
+    switch (sessionSyncStatus) {
+      case SessionSyncStatus.live:
+        return '실시간 연결';
+      case SessionSyncStatus.stale:
+        return '멈춤 감지';
+      case SessionSyncStatus.reconnecting:
+        return '다시 연결 중';
+      case SessionSyncStatus.failed:
+        return '복구 필요';
+      case SessionSyncStatus.idle:
+        return hasSessionSyncTarget ? '준비 중' : '세션 없음';
+    }
+  }
+
+  String get sessionSyncSummary {
+    switch (sessionSyncStatus) {
+      case SessionSyncStatus.live:
+        return '세션이 실시간으로 동기화되고 있습니다.';
+      case SessionSyncStatus.stale:
+        return '동기화가 오래 멈춰 있어 새로고침이나 다시 연결이 필요할 수 있습니다.';
+      case SessionSyncStatus.reconnecting:
+        return '세션 연결을 복구하는 중입니다.';
+      case SessionSyncStatus.failed:
+        return '자동 복구가 실패했습니다. 직접 다시 연결해 주세요.';
+      case SessionSyncStatus.idle:
+        return hasSessionSyncTarget
+            ? '세션 연결을 준비하는 중입니다.'
+            : '세션을 선택하면 연결 상태를 추적합니다.';
+    }
+  }
+
+  String get sessionLastSyncedLabel {
+    if (sessionLastSyncedAt <= 0) {
+      return '아직 동기화 기록 없음';
+    }
+    return '${_formatSessionSyncTimestamp(sessionLastSyncedAt)} / ${_formatSessionSyncRelativeAge(sessionLastSyncedAt)}';
+  }
 
   bool get canApplyAllPatch => !isLoading && _patchFiles.isNotEmpty;
 
@@ -304,6 +373,7 @@ class AppController extends ChangeNotifier {
     _patchFiles.clear();
     _threadEvents.clear();
     _promptDraftSyncTimer?.cancel();
+    _resetSessionSyncState(shouldNotify: false);
     unawaited(_stopSessionStream());
     notifyListeners();
   }
@@ -318,6 +388,24 @@ class AppController extends ChangeNotifier {
 
   Future<void> refreshStatus() {
     return _run('상태 갱신', _refreshStatusRaw);
+  }
+
+  Future<void> refreshCurrentSession() {
+    if (currentThreadId.isEmpty) {
+      return Future.value();
+    }
+    return _run('세션 새로고침', () async {
+      await _refreshThreadDetail();
+    });
+  }
+
+  Future<void> retrySessionSync() {
+    if (currentThreadId.isEmpty) {
+      return Future.value();
+    }
+    return _run('세션 다시 연결', () async {
+      await _reconnectSessionStream(manual: true);
+    });
   }
 
   Future<void> startP2P() {
@@ -565,6 +653,7 @@ class AppController extends ChangeNotifier {
       _threadEvents.clear();
       liveSession = const SessionLiveView();
       sessionOperation = const SessionOperationView();
+      _resetSessionSyncState(shouldNotify: false);
       await _stopSessionStream();
       return;
     }
@@ -585,7 +674,7 @@ class AppController extends ChangeNotifier {
 
     _promptDraftSyncTimer = Timer(const Duration(milliseconds: 250), () {
       unawaited(
-        _publishSessionLiveState(
+        _publishSessionLiveStateSafe(
           composer: {
             'draftText': value,
             'isTyping': value.trim().isNotEmpty,
@@ -600,18 +689,22 @@ class AppController extends ChangeNotifier {
     currentThreadId = detail['thread'] is Map
         ? (detail['thread']['id']?.toString() ?? currentThreadId)
         : currentThreadId;
+    _markSessionSyncHealthy(shouldNotify: false);
     _threadEvents
       ..clear()
       ..addAll(_parseThreadEvents(detail['events']));
 
     final threadRaw = detail['thread'];
     if (threadRaw is Map) {
-      final thread = ThreadSummaryView.fromMap(Map<String, dynamic>.from(threadRaw));
-      currentJobId = thread.currentJobId.isEmpty ? currentJobId : thread.currentJobId;
+      final thread =
+          ThreadSummaryView.fromMap(Map<String, dynamic>.from(threadRaw));
+      currentJobId =
+          thread.currentJobId.isEmpty ? currentJobId : thread.currentJobId;
     }
 
     liveSession = detail['liveState'] is Map
-        ? SessionLiveView.fromMap(Map<String, dynamic>.from(detail['liveState'] as Map))
+        ? SessionLiveView.fromMap(
+            Map<String, dynamic>.from(detail['liveState'] as Map))
         : const SessionLiveView();
     sessionOperation = detail['operationState'] is Map
         ? SessionOperationView.fromMap(
@@ -655,61 +748,107 @@ class AppController extends ChangeNotifier {
           ),
         );
     }
-    if (_runChangedFiles.isEmpty && sessionOperation.runChangedFiles.isNotEmpty) {
+    if (_runChangedFiles.isEmpty &&
+        sessionOperation.runChangedFiles.isNotEmpty) {
       _runChangedFiles
         ..clear()
         ..addAll(sessionOperation.runChangedFiles);
-    } else if (_runChangedFiles.isEmpty && sessionOperation.currentJobFiles.isNotEmpty) {
+    } else if (_runChangedFiles.isEmpty &&
+        sessionOperation.currentJobFiles.isNotEmpty) {
       _runChangedFiles
         ..clear()
         ..addAll(sessionOperation.currentJobFiles);
     }
   }
 
-  Future<void> _ensureSessionStream() async {
+  Future<void> _ensureSessionStream({bool force = false}) async {
     if (currentThreadId.isEmpty) {
       await _stopSessionStream();
       return;
     }
-    if (_sessionStreamSub != null &&
+    if (!force &&
+        _sessionStreamSub != null &&
         _sessionStreamThreadId == currentThreadId &&
         _sessionStreamBaseUrl == agentBaseUrl) {
+      _armSessionSyncWatchdog();
       return;
     }
 
-    await _stopSessionStream();
+    await _stopSessionStream(preserveSyncState: true);
     _sessionStreamThreadId = currentThreadId;
     _sessionStreamBaseUrl = agentBaseUrl;
-    _sessionStreamSub = _api.sessionStream(agentBaseUrl, currentThreadId).listen(
+    _markSessionSyncReconnecting(
+      detail: '세션 실시간 연결을 준비하는 중입니다.',
+      shouldNotify: false,
+    );
+    _sessionStreamSub =
+        _api.sessionStream(agentBaseUrl, currentThreadId).listen(
       (detail) {
         _applySessionDetail(detail);
         notifyListeners();
       },
-      onError: (_) {},
+      onError: (Object error, StackTrace stackTrace) {
+        _handleSessionSyncFault(error, source: 'stream');
+      },
+      onDone: () {
+        if (currentThreadId.isEmpty) {
+          return;
+        }
+        _handleSessionSyncFault(
+          StateError('session stream closed'),
+          source: 'stream_closed',
+        );
+      },
+      cancelOnError: true,
     );
 
-    await _publishSessionPresence();
+    await _publishSessionPresenceSafe();
     _sessionPresenceTimer = Timer.periodic(const Duration(seconds: 12), (_) {
-      unawaited(_publishSessionPresence());
+      unawaited(_publishSessionPresenceSafe());
     });
   }
 
-  Future<void> _stopSessionStream() async {
+  Future<void> _stopSessionStream({bool preserveSyncState = false}) async {
     _promptDraftSyncTimer?.cancel();
     _promptDraftSyncTimer = null;
     _sessionPresenceTimer?.cancel();
     _sessionPresenceTimer = null;
+    _sessionSyncWatchdogTimer?.cancel();
+    _sessionSyncWatchdogTimer = null;
+    _sessionSyncRetryTimer?.cancel();
+    _sessionSyncRetryTimer = null;
     await _sessionStreamSub?.cancel();
     _sessionStreamSub = null;
     _sessionStreamThreadId = '';
     _sessionStreamBaseUrl = '';
+    if (!preserveSyncState && currentThreadId.isEmpty) {
+      _resetSessionSyncState(shouldNotify: false);
+    }
   }
 
   Future<void> _publishSessionPresence() {
     return _publishSessionLiveState();
   }
 
-  Future<void> _publishSessionLiveState({Map<String, dynamic>? composer}) async {
+  Future<void> _publishSessionPresenceSafe() async {
+    try {
+      await _publishSessionPresence();
+    } catch (error) {
+      _handleSessionSyncFault(error, source: 'presence');
+    }
+  }
+
+  Future<void> _publishSessionLiveStateSafe(
+      {Map<String, dynamic>? composer}) async {
+    try {
+      await _publishSessionLiveState(composer: composer);
+    } catch (error) {
+      _handleSessionSyncFault(error, source: 'live_update');
+    }
+  }
+
+  Future<void> _publishSessionLiveState(
+      {Map<String, dynamic>? composer}) async {
     if (currentThreadId.isEmpty) {
       return;
     }
@@ -745,6 +884,192 @@ class AppController extends ChangeNotifier {
     );
     _applySessionDetail(detail);
     notifyListeners();
+  }
+
+  Future<void> _reconnectSessionStream({bool manual = false}) async {
+    if (currentThreadId.isEmpty) {
+      return;
+    }
+
+    _sessionSyncRetryTimer?.cancel();
+    _sessionSyncRetryTimer = null;
+    if (manual) {
+      _sessionSyncReconnectAttempts = 0;
+    }
+
+    _markSessionSyncReconnecting(
+      detail: manual ? '세션 연결을 다시 시작하는 중입니다.' : '세션 연결을 복구하는 중입니다.',
+      shouldNotify: false,
+    );
+    await _stopSessionStream(preserveSyncState: true);
+    final detail = await _api.sessionDetail(agentBaseUrl, currentThreadId);
+    _applySessionDetail(detail);
+    await _ensureSessionStream(force: true);
+    notifyListeners();
+  }
+
+  void _handleSessionSyncFault(Object error, {required String source}) {
+    if (currentThreadId.isEmpty) {
+      return;
+    }
+
+    final detail = _sessionSyncRecoveryDetail(error, source: source);
+    if (source == 'watchdog') {
+      _markSessionSyncStale(detail: detail);
+    } else {
+      _markSessionSyncReconnecting(detail: detail);
+    }
+
+    if (_sessionSyncRetryTimer != null) {
+      return;
+    }
+    if (_sessionSyncReconnectAttempts >= _sessionSyncMaxReconnectAttempts) {
+      _markSessionSyncFailed(detail: detail);
+      return;
+    }
+
+    _sessionSyncReconnectAttempts += 1;
+    _sessionSyncRetryTimer = Timer(_sessionSyncReconnectDelay, () {
+      _sessionSyncRetryTimer = null;
+      unawaited(_runSessionSyncReconnectAttempt());
+    });
+  }
+
+  Future<void> _runSessionSyncReconnectAttempt() async {
+    try {
+      await _reconnectSessionStream();
+    } catch (error) {
+      final detail = _sessionSyncRecoveryDetail(error, source: 'retry');
+      if (_sessionSyncReconnectAttempts >= _sessionSyncMaxReconnectAttempts) {
+        _markSessionSyncFailed(detail: detail);
+        return;
+      }
+      _markSessionSyncReconnecting(detail: detail);
+      _handleSessionSyncFault(error, source: 'retry');
+    }
+  }
+
+  void _armSessionSyncWatchdog() {
+    _sessionSyncWatchdogTimer?.cancel();
+    if (currentThreadId.isEmpty ||
+        sessionSyncStatus == SessionSyncStatus.failed) {
+      return;
+    }
+
+    _sessionSyncWatchdogTimer = Timer(_sessionSyncStaleAfter, () {
+      if (currentThreadId.isEmpty ||
+          sessionSyncStatus == SessionSyncStatus.failed) {
+        return;
+      }
+      _handleSessionSyncFault(
+        StateError('session sync watchdog timeout'),
+        source: 'watchdog',
+      );
+    });
+  }
+
+  void _resetSessionSyncState({bool shouldNotify = true}) {
+    _sessionSyncWatchdogTimer?.cancel();
+    _sessionSyncWatchdogTimer = null;
+    _sessionSyncRetryTimer?.cancel();
+    _sessionSyncRetryTimer = null;
+    _sessionSyncReconnectAttempts = 0;
+    sessionSyncStatus = SessionSyncStatus.idle;
+    sessionSyncDetail = '';
+    sessionLastSyncedAt = 0;
+    if (shouldNotify) {
+      notifyListeners();
+    }
+  }
+
+  void _markSessionSyncHealthy({bool shouldNotify = true}) {
+    if (currentThreadId.isEmpty) {
+      _resetSessionSyncState(shouldNotify: shouldNotify);
+      return;
+    }
+
+    _sessionSyncReconnectAttempts = 0;
+    sessionSyncStatus = SessionSyncStatus.live;
+    sessionSyncDetail = '';
+    sessionLastSyncedAt = DateTime.now().millisecondsSinceEpoch;
+    _armSessionSyncWatchdog();
+    if (shouldNotify) {
+      notifyListeners();
+    }
+  }
+
+  void _markSessionSyncReconnecting({
+    required String detail,
+    bool shouldNotify = true,
+  }) {
+    if (currentThreadId.isEmpty) {
+      return;
+    }
+    sessionSyncStatus = SessionSyncStatus.reconnecting;
+    sessionSyncDetail = detail;
+    if (shouldNotify) {
+      notifyListeners();
+    }
+  }
+
+  void _markSessionSyncStale(
+      {required String detail, bool shouldNotify = true}) {
+    if (currentThreadId.isEmpty) {
+      return;
+    }
+    sessionSyncStatus = SessionSyncStatus.stale;
+    sessionSyncDetail = detail;
+    if (shouldNotify) {
+      notifyListeners();
+    }
+  }
+
+  void _markSessionSyncFailed(
+      {required String detail, bool shouldNotify = true}) {
+    if (currentThreadId.isEmpty) {
+      return;
+    }
+    _sessionSyncWatchdogTimer?.cancel();
+    _sessionSyncWatchdogTimer = null;
+    _sessionSyncRetryTimer?.cancel();
+    _sessionSyncRetryTimer = null;
+    sessionSyncStatus = SessionSyncStatus.failed;
+    sessionSyncDetail = detail;
+    if (shouldNotify) {
+      notifyListeners();
+    }
+  }
+
+  String _sessionSyncRecoveryDetail(Object error, {required String source}) {
+    if (source == 'watchdog') {
+      return '마지막 동기화 이후 새 업데이트가 없어 복구를 시도합니다.';
+    }
+    if (error is AgentApiException) {
+      return '세션 동기화 요청이 실패했습니다. [${error.statusCode}] ${error.message}';
+    }
+    return '세션 연결이 끊기면 복구를 시도합니다.';
+  }
+
+  String _formatSessionSyncTimestamp(int value) {
+    final local = DateTime.fromMillisecondsSinceEpoch(value).toLocal();
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    final ss = local.second.toString().padLeft(2, '0');
+    return '${local.month}/${local.day} $hh:$mm:$ss';
+  }
+
+  String _formatSessionSyncRelativeAge(int value) {
+    final delta = DateTime.now().millisecondsSinceEpoch - value;
+    if (delta < 5000) {
+      return '방금 전';
+    }
+    if (delta < 60000) {
+      return '${(delta / 1000).floor()}초 전';
+    }
+    if (delta < 3600000) {
+      return '${(delta / 60000).floor()}분 전';
+    }
+    return '${(delta / 3600000).floor()}시간 전';
   }
 
   Map<String, dynamic> _buildMobileFocus(int now) {
@@ -983,7 +1308,8 @@ class AppController extends ChangeNotifier {
           ..addAll(_parsePatchFiles(event.data['files']));
       }
       if (event.kind == 'patch_applied') {
-        patchResultStatus = event.data['status']?.toString() ?? patchResultStatus;
+        patchResultStatus =
+            event.data['status']?.toString() ?? patchResultStatus;
         patchResultMessage = event.body.isEmpty
             ? (event.data['message']?.toString() ?? patchResultMessage)
             : event.body;
@@ -1054,7 +1380,8 @@ class AppController extends ChangeNotifier {
     }
     return raw
         .whereType<Map>()
-        .map((item) => ThreadSummaryView.fromMap(Map<String, dynamic>.from(item)))
+        .map((item) =>
+            ThreadSummaryView.fromMap(Map<String, dynamic>.from(item)))
         .toList();
   }
 
@@ -1543,9 +1870,10 @@ class BootstrapStatusView {
           : const BootstrapAdapterView(),
       recentThreads: recentThreadsRaw is List
           ? recentThreadsRaw
-                .whereType<Map>()
-                .map((item) => BootstrapThreadView.fromMap(Map<String, dynamic>.from(item)))
-                .toList()
+              .whereType<Map>()
+              .map((item) =>
+                  BootstrapThreadView.fromMap(Map<String, dynamic>.from(item)))
+              .toList()
           : const [],
     );
   }
@@ -1743,9 +2071,6 @@ class ThreadEventView {
   }
 }
 
-
-
-
 class SessionParticipantView {
   const SessionParticipantView({
     required this.participantId,
@@ -1921,9 +2246,10 @@ class SessionPlanView {
       summary: map['summary']?.toString() ?? '',
       items: itemsRaw is List
           ? itemsRaw
-                .whereType<Map>()
-                .map((item) => SessionPlanItemView.fromMap(Map<String, dynamic>.from(item)))
-                .toList()
+              .whereType<Map>()
+              .map((item) =>
+                  SessionPlanItemView.fromMap(Map<String, dynamic>.from(item)))
+              .toList()
           : const [],
       updatedAtMillis: map['updatedAt'] is num
           ? (map['updatedAt'] as num).toInt()
@@ -1980,9 +2306,10 @@ class SessionToolView {
       currentStatus: map['currentStatus']?.toString() ?? '',
       activities: activitiesRaw is List
           ? activitiesRaw
-                .whereType<Map>()
-                .map((item) => SessionToolActivityView.fromMap(Map<String, dynamic>.from(item)))
-                .toList()
+              .whereType<Map>()
+              .map((item) => SessionToolActivityView.fromMap(
+                  Map<String, dynamic>.from(item)))
+              .toList()
           : const [],
       updatedAtMillis: map['updatedAt'] is num
           ? (map['updatedAt'] as num).toInt()
@@ -2050,10 +2377,16 @@ class SessionWorkspaceView {
       rootPath: map['rootPath']?.toString() ?? '',
       activeFilePath: map['activeFilePath']?.toString() ?? '',
       patchFiles: patchFilesRaw is List
-          ? patchFilesRaw.map((item) => item.toString()).where((item) => item.isNotEmpty).toList()
+          ? patchFilesRaw
+              .map((item) => item.toString())
+              .where((item) => item.isNotEmpty)
+              .toList()
           : const [],
       changedFiles: changedFilesRaw is List
-          ? changedFilesRaw.map((item) => item.toString()).where((item) => item.isNotEmpty).toList()
+          ? changedFilesRaw
+              .map((item) => item.toString())
+              .where((item) => item.isNotEmpty)
+              .toList()
           : const [],
       updatedAtMillis: map['updatedAt'] is num
           ? (map['updatedAt'] as num).toInt()
@@ -2112,33 +2445,42 @@ class SessionLiveView {
     return SessionLiveView(
       participants: participantsRaw is List
           ? participantsRaw
-                .whereType<Map>()
-                .map((item) => SessionParticipantView.fromMap(Map<String, dynamic>.from(item)))
-                .toList()
+              .whereType<Map>()
+              .map((item) => SessionParticipantView.fromMap(
+                  Map<String, dynamic>.from(item)))
+              .toList()
           : const [],
       composer: map['composer'] is Map
-          ? SessionComposerView.fromMap(Map<String, dynamic>.from(map['composer'] as Map))
+          ? SessionComposerView.fromMap(
+              Map<String, dynamic>.from(map['composer'] as Map))
           : const SessionComposerView(),
       focus: map['focus'] is Map
-          ? SessionFocusView.fromMap(Map<String, dynamic>.from(map['focus'] as Map))
+          ? SessionFocusView.fromMap(
+              Map<String, dynamic>.from(map['focus'] as Map))
           : const SessionFocusView(),
       activity: map['activity'] is Map
-          ? SessionActivityView.fromMap(Map<String, dynamic>.from(map['activity'] as Map))
+          ? SessionActivityView.fromMap(
+              Map<String, dynamic>.from(map['activity'] as Map))
           : const SessionActivityView(),
       reasoning: map['reasoning'] is Map
-          ? SessionReasoningView.fromMap(Map<String, dynamic>.from(map['reasoning'] as Map))
+          ? SessionReasoningView.fromMap(
+              Map<String, dynamic>.from(map['reasoning'] as Map))
           : const SessionReasoningView(),
       plan: map['plan'] is Map
-          ? SessionPlanView.fromMap(Map<String, dynamic>.from(map['plan'] as Map))
+          ? SessionPlanView.fromMap(
+              Map<String, dynamic>.from(map['plan'] as Map))
           : const SessionPlanView(),
       tools: map['tools'] is Map
-          ? SessionToolView.fromMap(Map<String, dynamic>.from(map['tools'] as Map))
+          ? SessionToolView.fromMap(
+              Map<String, dynamic>.from(map['tools'] as Map))
           : const SessionToolView(),
       terminal: map['terminal'] is Map
-          ? SessionTerminalView.fromMap(Map<String, dynamic>.from(map['terminal'] as Map))
+          ? SessionTerminalView.fromMap(
+              Map<String, dynamic>.from(map['terminal'] as Map))
           : const SessionTerminalView(),
       workspace: map['workspace'] is Map
-          ? SessionWorkspaceView.fromMap(Map<String, dynamic>.from(map['workspace'] as Map))
+          ? SessionWorkspaceView.fromMap(
+              Map<String, dynamic>.from(map['workspace'] as Map))
           : const SessionWorkspaceView(),
     );
   }
@@ -2198,7 +2540,10 @@ class SessionOperationView {
           ? (map['patchFileCount'] as num).toInt()
           : int.tryParse(map['patchFileCount']?.toString() ?? '') ?? 0,
       patchFiles: patchFilesRaw is List
-          ? patchFilesRaw.map((item) => item.toString()).where((item) => item.isNotEmpty).toList()
+          ? patchFilesRaw
+              .map((item) => item.toString())
+              .where((item) => item.isNotEmpty)
+              .toList()
           : const [],
       patchResultStatus: map['patchResultStatus']?.toString() ?? '',
       patchResultMessage: map['patchResultMessage']?.toString() ?? '',
@@ -2210,16 +2555,23 @@ class SessionOperationView {
       runExcerpt: map['runExcerpt']?.toString() ?? '',
       runOutput: map['runOutput']?.toString() ?? '',
       runChangedFiles: runChangedFilesRaw is List
-          ? runChangedFilesRaw.map((item) => item.toString()).where((item) => item.isNotEmpty).toList()
+          ? runChangedFilesRaw
+              .map((item) => item.toString())
+              .where((item) => item.isNotEmpty)
+              .toList()
           : const [],
       runTopErrors: runTopErrorsRaw is List
           ? runTopErrorsRaw
-                .whereType<Map>()
-                .map((item) => SessionRunErrorView.fromMap(Map<String, dynamic>.from(item)))
-                .toList()
+              .whereType<Map>()
+              .map((item) =>
+                  SessionRunErrorView.fromMap(Map<String, dynamic>.from(item)))
+              .toList()
           : const [],
       currentJobFiles: currentJobFilesRaw is List
-          ? currentJobFilesRaw.map((item) => item.toString()).where((item) => item.isNotEmpty).toList()
+          ? currentJobFilesRaw
+              .map((item) => item.toString())
+              .where((item) => item.isNotEmpty)
+              .toList()
           : const [],
       lastError: map['lastError']?.toString() ?? '',
     );

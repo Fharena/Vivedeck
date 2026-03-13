@@ -16,6 +16,8 @@ void main() {
     expect(find.text('세션 개요'), findsOneWidget);
     expect(find.text('패치와 실행'), findsWidgets);
     expect(find.text('세션 센터'), findsOneWidget);
+    expect(find.text('동기화 상태'), findsOneWidget);
+    expect(find.text('다시 연결'), findsOneWidget);
   });
 }
 
@@ -111,7 +113,8 @@ class _FakeShellAgentApi extends AgentApi {
   }
 
   @override
-  Future<Map<String, dynamic>> threadDetail(String baseUrl, String threadId) async {
+  Future<Map<String, dynamic>> threadDetail(
+      String baseUrl, String threadId) async {
     return {
       'thread': {
         'id': threadId,
