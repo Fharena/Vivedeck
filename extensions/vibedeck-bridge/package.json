@@ -29,6 +29,7 @@
     "onCommand:vibedeckBridge.copyMobileBootstrap",
     "onCommand:vibedeckBridge.probeCursorChat",
     "onCommand:vibedeckBridge.probeCursorPromptSubmit",
+    "onCommand:vibedeckBridge.submitCursorPrompt",
     "onCommand:vibedeckBridge.probeCursorChatStorage"
   ],
   "contributes": {
@@ -88,6 +89,10 @@
       {
         "command": "vibedeckBridge.probeCursorPromptSubmit",
         "title": "VibeDeck: Cursor 채팅 전송 경로 진단"
+      },
+      {
+        "command": "vibedeckBridge.submitCursorPrompt",
+        "title": "VibeDeck: Send Prompt To Cursor Chat"
       },
       {
         "command": "vibedeckBridge.probeCursorChatStorage",
@@ -354,6 +359,7 @@
     "smoke:extension": "npm run build && node ./scripts/extension_runtime_smoke.mjs",
     "smoke:chat-probe": "npm run build && node ./scripts/cursor_chat_probe_smoke.mjs",
     "smoke:submit-probe": "npm run build && node ./scripts/cursor_prompt_submit_probe_smoke.mjs",
+    "smoke:native-submit": "npm run build && node ./scripts/cursor_native_prompt_submit_smoke.mjs",
     "package:vsix": "npm run build && node ./scripts/package_vsix.mjs",
     "smoke:panel": "npm run build && node ./scripts/thread_panel_smoke.mjs",
     "smoke:bootstrap": "npm run build && node ./scripts/bootstrap_runtime_smoke.mjs",
