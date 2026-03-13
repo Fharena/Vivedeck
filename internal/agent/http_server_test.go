@@ -549,6 +549,55 @@ func TestHTTPServerSessionLiveUpdateEndpoint(t *testing.T) {
 	}
 }
 
+func TestHTTPServerSessionTimelineAppendEndpoint(t *testing.T) {
+	server, _, _ := newTestHTTPServer()
+	sessionID := seedSharedSession(t, server, "sid-timeline-append", "Mirror Cursor native chat")
+
+	appendBody := bytes.NewBufferString(`{"events":[{"id":"cursor-bubble:composer-1:bubble-user-1","kind":"provider_message","role":"user","title":"Cursor 사용자 메시지","body":"fix auth middleware","data":{"source":"cursor_storage","composerId":"composer-1","bubbleId":"bubble-user-1"},"at":1700000000100},{"id":"cursor-context:composer-1:bubble-user-1","kind":"tool_activity","title":"Cursor 요청 맥락","body":"files: internal/agent/session_store.go","data":{"source":"cursor_storage","composerId":"composer-1","bubbleId":"bubble-user-1","files":["internal/agent/session_store.go"]},"at":1700000000101}]}`)
+	appendReq := httptest.NewRequest(http.MethodPost, "/v1/agent/sessions/"+sessionID+"/events", appendBody)
+	appendRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(appendRec, appendReq)
+
+	if appendRec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", appendRec.Code)
+	}
+
+	var detail SharedSessionDetail
+	if err := json.Unmarshal(appendRec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode append response: %v", err)
+	}
+	if len(detail.Timeline) != 5 {
+		t.Fatalf("expected timeline length 5 after append, got %+v", detail.Timeline)
+	}
+	last := detail.Timeline[len(detail.Timeline)-1]
+	if last.Kind != "tool_activity" || last.Role != "system" {
+		t.Fatalf("expected default system role tool activity, got %+v", last)
+	}
+	previous := detail.Timeline[len(detail.Timeline)-2]
+	if previous.Kind != "provider_message" || previous.Role != "user" {
+		t.Fatalf("expected provider message append, got %+v", previous)
+	}
+
+	repeatReq := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/agent/sessions/"+sessionID+"/events",
+		bytes.NewBufferString(`{"events":[{"id":"cursor-bubble:composer-1:bubble-user-1","kind":"provider_message","role":"user","title":"Cursor 사용자 메시지","body":"fix auth middleware","at":1700000000100},{"id":"cursor-context:composer-1:bubble-user-1","kind":"tool_activity","title":"Cursor 요청 맥락","body":"files: internal/agent/session_store.go","at":1700000000101}]}`),
+	)
+	repeatRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(repeatRec, repeatReq)
+	if repeatRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on repeated append, got %d", repeatRec.Code)
+	}
+
+	var repeated SharedSessionDetail
+	if err := json.Unmarshal(repeatRec.Body.Bytes(), &repeated); err != nil {
+		t.Fatalf("decode repeated append response: %v", err)
+	}
+	if len(repeated.Timeline) != 5 {
+		t.Fatalf("expected idempotent append to keep timeline length 5, got %+v", repeated.Timeline)
+	}
+}
+
 func TestHTTPServerSessionStreamEndpoint(t *testing.T) {
 	server, _, _ := newTestHTTPServer()
 	sessionID := seedSharedSession(t, server, "sid-live-stream", "Stream the shared session")

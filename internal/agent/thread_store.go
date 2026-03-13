@@ -128,6 +128,13 @@ func (s *ThreadStore) AppendEvent(threadID string, event ThreadEvent) (ThreadSum
 		return ThreadSummary{}, fmt.Errorf("thread %s not found", threadID)
 	}
 
+	if event.ID != "" {
+		for _, existing := range record.events {
+			if existing.ID == event.ID {
+				return record.summary, nil
+			}
+		}
+	}
 	if event.ID == "" {
 		event.ID = fmt.Sprintf("evt_%d", time.Now().UTC().UnixNano())
 	}

@@ -53,6 +53,10 @@ import {
   formatCursorChatLinkTrackerReport,
   type CursorChatLinkTracker,
 } from "./cursorChatLinkTracker.js";
+import {
+  createCursorChatTimelineMirror,
+  type CursorChatTimelineMirror,
+} from "./cursorChatTimelineMirror.js";
 
 type BridgeMode = "command" | "mock";
 type CommandProviderMode = "builtin_cursor_agent" | "external";
@@ -221,6 +225,7 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
   private readonly threadPanel: ThreadPanelController;
   private readonly mobileBootstrap: MobileBootstrapController;
   private readonly cursorChatLinks: CursorChatLinkTracker;
+  private readonly cursorChatTimelineMirror: CursorChatTimelineMirror;
   private activeBridge: ActiveBridge | undefined;
   private statusBarItem: BridgeExtensionStatusBarItemLike | undefined;
   private lastBridgeError: string | undefined;
@@ -241,6 +246,10 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
     this.threadPanel = createThreadPanelController(this.vscode);
     this.mobileBootstrap = createMobileBootstrapController(this.vscode);
     this.cursorChatLinks = createCursorChatLinkTracker();
+    this.cursorChatTimelineMirror = createCursorChatTimelineMirror({
+      tracker: this.cursorChatLinks,
+      getAgentBaseUrl: () => readBridgeAgentBaseUrl(this.vscode.workspace),
+    });
   }
 
   async activate(context: BridgeExtensionContextLike): Promise<void> {
@@ -354,6 +363,7 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
   }
 
   async deactivate(): Promise<void> {
+    this.cursorChatTimelineMirror.dispose();
     this.cursorChatLinks.dispose();
     this.mobileBootstrap.dispose();
     this.threadPanel.dispose();
@@ -717,6 +727,7 @@ class DefaultBridgeExtensionController implements BridgeExtensionController {
       } else {
         linkState = "pending";
       }
+      await this.cursorChatTimelineMirror.refreshNow();
     }
 
     let summary = "VibeDeck Cursor 기본 채팅으로 프롬프트 제출을 시도했습니다. " + result.summary;
@@ -1147,6 +1158,28 @@ function formatCommandBindings(bindings: BridgeCommandBinding[]): string {
 
 function resolveAddress(settings: BridgeSettings): string {
   return `${settings.tcpHost}:${settings.tcpPort}`;
+}
+
+function readBridgeAgentBaseUrl(workspace: BridgeExtensionWorkspaceLike): string {
+  const config = workspace.getConfiguration("vibedeckBridge");
+  const configured = textValue(config.get<string>("agentBaseUrl", "")).trim();
+  if (configured) {
+    return configured;
+  }
+  const host = textValue(config.get<string>("agent.host", "127.0.0.1")).trim() || "127.0.0.1";
+  const port = normalizePort(config.get<number>("agent.port", 8080));
+  return normalizeAgentBaseUrl(host, port || 8080);
+}
+
+function normalizeAgentBaseUrl(host: string, port: number): string {
+  return `http://${host}:${port}`;
+}
+
+function textValue(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value;
 }
 
 function buildAgentEnvCommand(address: string): string {
